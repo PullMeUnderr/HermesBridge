@@ -2,6 +2,7 @@ package com.vladislav.tgclone.bridge;
 
 import com.vladislav.tgclone.conversation.ConversationMessage;
 import com.vladislav.tgclone.conversation.ConversationAttachment;
+import com.vladislav.tgclone.conversation.ConversationAttachmentKind;
 import com.vladislav.tgclone.media.MediaStorageService;
 import java.util.List;
 import com.vladislav.tgclone.telegram.TelegramBotClient;
@@ -29,6 +30,18 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
         if (attachments.isEmpty()) {
             String text = message.getAuthorDisplayName() + ": " + message.getBody();
             return telegramBotClient.sendMessage(binding.getExternalChatId(), text);
+        }
+
+        if (attachments.size() > 1 && canSendAsMediaGroup(attachments)) {
+            try {
+                return telegramBotClient.sendMediaGroup(
+                    binding.getExternalChatId(),
+                    attachments.stream().map(this::toMediaGroupItem).toList(),
+                    buildCaption(message)
+                );
+            } catch (Exception ignored) {
+                // Fall back to individual sends.
+            }
         }
 
         String firstMessageId = "";
@@ -59,6 +72,7 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
         return switch (attachment.getKind()) {
             case PHOTO -> deliverPhoto(binding, attachment, path, caption);
             case VIDEO -> deliverVideo(binding, attachment, path, caption);
+            case VIDEO_NOTE -> deliverVideoNote(binding, attachment, path, caption);
             case VOICE -> deliverVoice(binding, attachment, path, caption);
             case DOCUMENT -> telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption);
         };
@@ -77,6 +91,27 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
 
     private String deliverVideo(TransportBinding binding, ConversationAttachment attachment, java.nio.file.Path path, String caption) {
         if (shouldSendAsVideo(attachment)) {
+            try {
+                return telegramBotClient.sendVideo(binding.getExternalChatId(), path, caption);
+            } catch (Exception ignored) {
+                // Fall through to document.
+            }
+        }
+        return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption);
+    }
+
+    private String deliverVideoNote(
+        TransportBinding binding,
+        ConversationAttachment attachment,
+        java.nio.file.Path path,
+        String caption
+    ) {
+        if (shouldSendAsVideo(attachment)) {
+            try {
+                return telegramBotClient.sendVideoNote(binding.getExternalChatId(), path);
+            } catch (Exception ignored) {
+                // Fall through to regular video or document.
+            }
             try {
                 return telegramBotClient.sendVideo(binding.getExternalChatId(), path, caption);
             } catch (Exception ignored) {
@@ -128,6 +163,20 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
             || normalizedName.endsWith(".webm")
             || normalizedName.endsWith(".mkv")
             || normalizedName.endsWith(".avi");
+    }
+
+    private boolean canSendAsMediaGroup(List<ConversationAttachment> attachments) {
+        return attachments.stream().allMatch(attachment -> switch (attachment.getKind()) {
+            case PHOTO -> shouldSendAsPhoto(attachment);
+            case VIDEO -> shouldSendAsVideo(attachment);
+            default -> false;
+        });
+    }
+
+    private TelegramBotClient.TelegramMediaGroupItem toMediaGroupItem(ConversationAttachment attachment) {
+        java.nio.file.Path path = mediaStorageService.resolve(attachment.getStorageKey());
+        String type = attachment.getKind() == ConversationAttachmentKind.PHOTO ? "photo" : "video";
+        return new TelegramBotClient.TelegramMediaGroupItem(type, path);
     }
 
     private boolean shouldSendAsVoice(ConversationAttachment attachment) {

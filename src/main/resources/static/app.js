@@ -21,6 +21,7 @@ const state = {
   recordedVoiceFile: null,
   recordedVoiceObjectUrl: null,
   isRecordingVoice: false,
+  sendAsVideoNote: false,
 };
 
 const elements = {
@@ -62,6 +63,7 @@ const elements = {
   messageInput: document.getElementById("messageInput"),
   messageAttachmentsInput: document.getElementById("messageAttachmentsInput"),
   attachmentSelectionLabel: document.getElementById("attachmentSelectionLabel"),
+  sendAsVideoNoteButton: document.getElementById("sendAsVideoNoteButton"),
   recordVoiceButton: document.getElementById("recordVoiceButton"),
   recordedVoicePreview: document.getElementById("recordedVoicePreview"),
   recordedVoiceStatus: document.getElementById("recordedVoiceStatus"),
@@ -100,6 +102,7 @@ elements.logoutButton.addEventListener("click", () => {
   state.lastSyncAt = null;
   state.sidebarDrawerMode = null;
   state.messageSubmitInFlight = false;
+  state.sendAsVideoNote = false;
   discardRecordedVoice();
   resetAttachmentObjectUrls();
   stopPolling();
@@ -194,7 +197,18 @@ elements.createInviteButton.addEventListener("click", async () => {
 });
 
 elements.messageAttachmentsInput.addEventListener("change", () => {
+  normalizeVideoNoteSelectionState();
   renderSelectedAttachments();
+});
+
+elements.sendAsVideoNoteButton.addEventListener("click", () => {
+  if (!canSendSelectedFileAsVideoNote() || state.messageSubmitInFlight) {
+    return;
+  }
+
+  state.sendAsVideoNote = !state.sendAsVideoNote;
+  renderSelectedAttachments();
+  renderComposerState();
 });
 
 elements.recordVoiceButton.addEventListener("click", async () => {
@@ -245,6 +259,9 @@ elements.messageForm.addEventListener("submit", async (event) => {
       const formData = new FormData();
       if (body) {
         formData.append("body", body);
+      }
+      if (state.sendAsVideoNote) {
+        formData.append("sendAsVideoNote", "true");
       }
       files.forEach((file) => formData.append("files", file));
 
@@ -710,7 +727,7 @@ function renderMessageAttachments(attachments) {
   }
 
   return `
-    <div class="message-attachments">
+    <div class="message-attachments ${attachments.length > 1 ? "is-album" : ""}">
       ${attachments.map(renderAttachmentCard).join("")}
     </div>
   `;
@@ -752,6 +769,35 @@ function renderAttachmentCard(attachment) {
           data-attachment-preview-id="${attachment.id}"
           data-content-url="${escapeHtml(attachment.contentUrl)}"
         ></video>
+        <figcaption class="attachment-caption">
+          <span>${escapeHtml(attachment.fileName)}</span>
+          <button
+            class="attachment-link"
+            type="button"
+            data-download-attachment-id="${attachment.id}"
+            data-file-name="${escapeHtml(attachment.fileName)}"
+            data-content-url="${escapeHtml(attachment.contentUrl)}"
+          >
+            Скачать
+          </button>
+        </figcaption>
+      </figure>
+    `;
+  }
+
+  if (attachment.kind === "VIDEO_NOTE") {
+    return `
+      <figure class="attachment-card attachment-card-video-note">
+        <div class="video-note-shell">
+          <video
+            class="attachment-video-note hidden"
+            controls
+            playsinline
+            preload="metadata"
+            data-attachment-preview-id="${attachment.id}"
+            data-content-url="${escapeHtml(attachment.contentUrl)}"
+          ></video>
+        </div>
         <figcaption class="attachment-caption">
           <span>${escapeHtml(attachment.fileName)}</span>
           <button
@@ -896,6 +942,10 @@ function renderSelectedAttachments() {
     parts.push(`${files.length} файл(ов) · ${formatBytes(selectedFilesSize)}`);
   }
 
+  if (state.sendAsVideoNote && canSendSelectedFileAsVideoNote()) {
+    parts.push("режим кружка");
+  }
+
   if (state.recordedVoiceFile) {
     parts.push(`голосовое · ${formatBytes(state.recordedVoiceFile.size)}`);
   }
@@ -911,14 +961,20 @@ function renderSelectedAttachments() {
 function resetComposer() {
   elements.messageInput.value = "";
   elements.messageAttachmentsInput.value = "";
+  state.sendAsVideoNote = false;
   discardRecordedVoice();
   renderSelectedAttachments();
 }
 
 function renderComposerState() {
   const disabled = !state.selectedConversationId || state.messageSubmitInFlight;
+  const canSendVideoNote = canSendSelectedFileAsVideoNote();
   elements.messageInput.disabled = disabled;
   elements.messageAttachmentsInput.disabled = disabled;
+  elements.sendAsVideoNoteButton.classList.toggle("hidden", !canSendVideoNote);
+  elements.sendAsVideoNoteButton.disabled = disabled || !canSendVideoNote;
+  elements.sendAsVideoNoteButton.classList.toggle("active", state.sendAsVideoNote && canSendVideoNote);
+  elements.sendAsVideoNoteButton.textContent = state.sendAsVideoNote ? "Кружок: вкл" : "Кружок";
   elements.recordVoiceButton.disabled =
     disabled || (!state.isRecordingVoice && !browserSupportsVoiceRecording());
   elements.clearRecordedVoiceButton.disabled =
@@ -1087,6 +1143,12 @@ function getComposerFiles() {
   return files;
 }
 
+function normalizeVideoNoteSelectionState() {
+  if (!canSendSelectedFileAsVideoNote()) {
+    state.sendAsVideoNote = false;
+  }
+}
+
 function renderRecordedVoicePreview() {
   const visible = state.isRecordingVoice || Boolean(state.recordedVoiceFile);
   elements.recordedVoicePreview.classList.toggle("hidden", !visible);
@@ -1243,6 +1305,37 @@ function stopMediaStream(stream) {
 
 function browserSupportsVoiceRecording() {
   return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+}
+
+function canSendSelectedFileAsVideoNote() {
+  if (state.recordedVoiceFile) {
+    return false;
+  }
+
+  const files = Array.from(elements.messageAttachmentsInput.files || []);
+  return files.length === 1 && isVideoLikeFile(files[0]);
+}
+
+function isVideoLikeFile(file) {
+  if (!file) {
+    return false;
+  }
+
+  const normalizedType = String(file.type || "").toLowerCase();
+  if (normalizedType.startsWith("video/")) {
+    return true;
+  }
+  if (normalizedType.startsWith("audio/")) {
+    return false;
+  }
+
+  const normalizedName = String(file.name || "").toLowerCase();
+  return normalizedName.endsWith(".mp4")
+    || normalizedName.endsWith(".mov")
+    || normalizedName.endsWith(".m4v")
+    || normalizedName.endsWith(".webm")
+    || normalizedName.endsWith(".mkv")
+    || normalizedName.endsWith(".avi");
 }
 
 function selectPreferredVoiceRecordingFormat() {

@@ -224,7 +224,9 @@ class TelegramPollingServiceTest {
                 "video caption",
                 null,
                 null,
+                null,
                 new TelegramVideoDto("video-file", "video-unique", "clip.mp4", "video/mp4", 5_000L),
+                null,
                 null
             ),
             null
@@ -241,13 +243,33 @@ class TelegramPollingServiceTest {
                 null,
                 null,
                 null,
+                null,
+                null,
                 new TelegramVoiceDto("voice-file", "voice-unique", "audio/ogg", 2_000L)
+            ),
+            null
+        );
+        TelegramUpdateDto videoNoteUpdate = new TelegramUpdateDto(
+            105L,
+            new TelegramMessageDto(
+                702L,
+                new TelegramChatDto(-100123L, "Hermes group", "supergroup"),
+                new TelegramUserDto(42L, "Alice", null, "alice"),
+                1_763_650_102L,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new TelegramVideoNoteDto("video-note-file", "video-note-unique", 3_000L),
+                null
             ),
             null
         );
 
         when(syncCursorRepository.findById("telegram-updates")).thenReturn(Optional.empty());
-        when(telegramBotClient.fetchUpdates(0L)).thenReturn(List.of(videoUpdate, voiceUpdate));
+        when(telegramBotClient.fetchUpdates(0L)).thenReturn(List.of(videoUpdate, voiceUpdate, videoNoteUpdate));
         when(telegramBotClient.downloadAttachment(
             "video-file",
             ConversationAttachmentKind.VIDEO,
@@ -274,18 +296,114 @@ class TelegramPollingServiceTest {
             2_000L,
             new byte[] {4, 5, 6}
         ));
+        when(telegramBotClient.downloadAttachment(
+            "video-note-file",
+            ConversationAttachmentKind.VIDEO_NOTE,
+            "telegram-video-note-702.mp4",
+            "video/mp4",
+            3_000L
+        )).thenReturn(new ConversationAttachmentDraft(
+            ConversationAttachmentKind.VIDEO_NOTE,
+            "telegram-video-note-702.mp4",
+            "video/mp4",
+            3_000L,
+            new byte[] {7, 8, 9}
+        ));
 
         telegramPollingService.poll();
 
         ArgumentCaptor<com.vladislav.tgclone.bridge.TelegramInboundEnvelope> envelopeCaptor =
             ArgumentCaptor.forClass(com.vladislav.tgclone.bridge.TelegramInboundEnvelope.class);
-        verify(messageRelayService, org.mockito.Mockito.times(2)).processTelegramInbound(envelopeCaptor.capture());
+        verify(messageRelayService, org.mockito.Mockito.times(3)).processTelegramInbound(envelopeCaptor.capture());
         List<com.vladislav.tgclone.bridge.TelegramInboundEnvelope> envelopes = envelopeCaptor.getAllValues();
 
         org.junit.jupiter.api.Assertions.assertEquals(ConversationAttachmentKind.VIDEO, envelopes.get(0).attachments().getFirst().kind());
         org.junit.jupiter.api.Assertions.assertEquals("video caption", envelopes.get(0).body());
         org.junit.jupiter.api.Assertions.assertEquals(ConversationAttachmentKind.VOICE, envelopes.get(1).attachments().getFirst().kind());
         org.junit.jupiter.api.Assertions.assertEquals("", envelopes.get(1).body());
+        org.junit.jupiter.api.Assertions.assertEquals(ConversationAttachmentKind.VIDEO_NOTE, envelopes.get(2).attachments().getFirst().kind());
+    }
+
+    @Test
+    void pollAggregatesInboundMediaGroupIntoSingleEnvelope() {
+        TelegramUpdateDto firstAlbumUpdate = new TelegramUpdateDto(
+            106L,
+            new TelegramMessageDto(
+                800L,
+                new TelegramChatDto(-100123L, "Hermes group", "supergroup"),
+                new TelegramUserDto(42L, "Alice", null, "alice"),
+                1_763_650_200L,
+                null,
+                "album caption",
+                "album-1",
+                List.of(new TelegramPhotoSizeDto("photo-1", "photo-u1", 640, 640, 1_000L)),
+                null,
+                null,
+                null,
+                null
+            ),
+            null
+        );
+        TelegramUpdateDto secondAlbumUpdate = new TelegramUpdateDto(
+            107L,
+            new TelegramMessageDto(
+                801L,
+                new TelegramChatDto(-100123L, "Hermes group", "supergroup"),
+                new TelegramUserDto(42L, "Alice", null, "alice"),
+                1_763_650_201L,
+                null,
+                null,
+                "album-1",
+                null,
+                null,
+                new TelegramVideoDto("video-2", "video-u2", "album.mp4", "video/mp4", 5_000L),
+                null,
+                null
+            ),
+            null
+        );
+
+        when(syncCursorRepository.findById("telegram-updates")).thenReturn(Optional.empty());
+        when(telegramBotClient.fetchUpdates(0L)).thenReturn(List.of(firstAlbumUpdate, secondAlbumUpdate));
+        when(telegramBotClient.downloadAttachment(
+            "photo-1",
+            ConversationAttachmentKind.PHOTO,
+            "telegram-photo-800.jpg",
+            "image/jpeg",
+            1_000L
+        )).thenReturn(new ConversationAttachmentDraft(
+            ConversationAttachmentKind.PHOTO,
+            "telegram-photo-800.jpg",
+            "image/jpeg",
+            1_000L,
+            new byte[] {1}
+        ));
+        when(telegramBotClient.downloadAttachment(
+            "video-2",
+            ConversationAttachmentKind.VIDEO,
+            "album.mp4",
+            "video/mp4",
+            5_000L
+        )).thenReturn(new ConversationAttachmentDraft(
+            ConversationAttachmentKind.VIDEO,
+            "album.mp4",
+            "video/mp4",
+            5_000L,
+            new byte[] {2}
+        ));
+
+        telegramPollingService.poll();
+
+        ArgumentCaptor<com.vladislav.tgclone.bridge.TelegramInboundEnvelope> envelopeCaptor =
+            ArgumentCaptor.forClass(com.vladislav.tgclone.bridge.TelegramInboundEnvelope.class);
+        verify(messageRelayService).processTelegramInbound(envelopeCaptor.capture());
+        com.vladislav.tgclone.bridge.TelegramInboundEnvelope envelope = envelopeCaptor.getValue();
+
+        org.junit.jupiter.api.Assertions.assertEquals("album:album-1", envelope.externalMessageId());
+        org.junit.jupiter.api.Assertions.assertEquals("album caption", envelope.body());
+        org.junit.jupiter.api.Assertions.assertEquals(2, envelope.attachments().size());
+        org.junit.jupiter.api.Assertions.assertEquals(ConversationAttachmentKind.PHOTO, envelope.attachments().get(0).kind());
+        org.junit.jupiter.api.Assertions.assertEquals(ConversationAttachmentKind.VIDEO, envelope.attachments().get(1).kind());
     }
 
     private TelegramMessageDto telegramMessage(
@@ -295,6 +413,6 @@ class TelegramPollingServiceTest {
         Long date,
         String text
     ) {
-        return new TelegramMessageDto(messageId, chat, from, date, text, null, null, null, null, null);
+        return new TelegramMessageDto(messageId, chat, from, date, text, null, null, null, null, null, null, null);
     }
 }

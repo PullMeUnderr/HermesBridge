@@ -96,10 +96,26 @@ public class TelegramPollingService {
             List<TelegramUpdateDto> updates = telegramBotClient.fetchUpdates(nextOffset);
             long updatedOffset = nextOffset;
 
-            for (TelegramUpdateDto update : updates) {
+            for (int index = 0; index < updates.size(); index++) {
+                TelegramUpdateDto update = updates.get(index);
                 updatedOffset = Math.max(updatedOffset, update.updateId() + 1);
                 try {
-                    processUpdate(update);
+                    if (startsInboundMediaGroup(update)) {
+                        List<TelegramMessageDto> mediaGroupMessages = new ArrayList<>();
+                        TelegramMessageDto seed = update.message();
+                        mediaGroupMessages.add(seed);
+
+                        while (index + 1 < updates.size() && isSameInboundMediaGroup(seed, updates.get(index + 1))) {
+                            index++;
+                            TelegramUpdateDto groupedUpdate = updates.get(index);
+                            updatedOffset = Math.max(updatedOffset, groupedUpdate.updateId() + 1);
+                            mediaGroupMessages.add(groupedUpdate.message());
+                        }
+
+                        processMediaGroup(mediaGroupMessages);
+                    } else {
+                        processUpdate(update);
+                    }
                 } catch (Exception ex) {
                     log.warn("Telegram update {} failed: {}", update.updateId(), ex.getMessage());
                 }
@@ -192,6 +208,31 @@ public class TelegramPollingService {
         } catch (NotFoundException ex) {
             log.info("Telegram chat {} is not bound yet", envelope.externalChatId());
             maybeSendGroupOnboarding(message);
+        }
+    }
+
+    private void processMediaGroup(List<TelegramMessageDto> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+
+        TelegramMessageDto firstMessage = messages.getFirst();
+        TelegramUserDto telegramUser = firstMessage.from();
+        TelegramInboundEnvelope envelope = new TelegramInboundEnvelope(
+            String.valueOf(firstMessage.chat().id()),
+            "album:" + firstMessage.mediaGroupId(),
+            telegramUser == null || telegramUser.id() == null ? null : String.valueOf(telegramUser.id()),
+            telegramUser == null ? "Telegram User" : telegramUser.displayName(),
+            extractInboundBody(messages),
+            firstMessage.sentAt(),
+            extractInboundAttachments(messages)
+        );
+
+        try {
+            messageRelayService.processTelegramInbound(envelope);
+        } catch (NotFoundException ex) {
+            log.info("Telegram chat {} is not bound yet", envelope.externalChatId());
+            maybeSendGroupOnboarding(firstMessage);
         }
     }
 
@@ -570,6 +611,7 @@ public class TelegramPollingService {
             || (message.photo() != null && !message.photo().isEmpty())
             || message.document() != null
             || message.video() != null
+            || message.videoNote() != null
             || message.voice() != null;
     }
 
@@ -579,6 +621,16 @@ public class TelegramPollingService {
         }
         if (message.caption() != null && !message.caption().isBlank()) {
             return message.caption();
+        }
+        return "";
+    }
+
+    private String extractInboundBody(List<TelegramMessageDto> messages) {
+        for (TelegramMessageDto message : messages) {
+            String body = extractInboundBody(message);
+            if (!body.isBlank()) {
+                return body;
+            }
         }
         return "";
     }
@@ -619,6 +671,17 @@ public class TelegramPollingService {
             ));
         }
 
+        TelegramVideoNoteDto videoNote = message.videoNote();
+        if (videoNote != null && videoNote.fileId() != null && !videoNote.fileId().isBlank()) {
+            attachments.add(telegramBotClient.downloadAttachment(
+                videoNote.fileId(),
+                ConversationAttachmentKind.VIDEO_NOTE,
+                "telegram-video-note-" + message.messageId() + ".mp4",
+                "video/mp4",
+                videoNote.fileSize()
+            ));
+        }
+
         TelegramVoiceDto voice = message.voice();
         if (voice != null && voice.fileId() != null && !voice.fileId().isBlank()) {
             attachments.add(telegramBotClient.downloadAttachment(
@@ -630,6 +693,14 @@ public class TelegramPollingService {
             ));
         }
 
+        return attachments;
+    }
+
+    private List<ConversationAttachmentDraft> extractInboundAttachments(List<TelegramMessageDto> messages) {
+        List<ConversationAttachmentDraft> attachments = new ArrayList<>();
+        for (TelegramMessageDto message : messages) {
+            attachments.addAll(extractInboundAttachments(message));
+        }
         return attachments;
     }
 
@@ -650,6 +721,37 @@ public class TelegramPollingService {
                 })
             )
             .orElse(null);
+    }
+
+    private boolean startsInboundMediaGroup(TelegramUpdateDto update) {
+        if (update == null || update.callbackQuery() != null || update.message() == null) {
+            return false;
+        }
+
+        TelegramMessageDto message = update.message();
+        if (message.chat() == null || "private".equalsIgnoreCase(message.chat().type())) {
+            return false;
+        }
+
+        return message.mediaGroupId() != null
+            && !message.mediaGroupId().isBlank()
+            && hasSupportedGroupPayload(message);
+    }
+
+    private boolean isSameInboundMediaGroup(TelegramMessageDto seed, TelegramUpdateDto candidate) {
+        if (seed == null || candidate == null || candidate.callbackQuery() != null || candidate.message() == null) {
+            return false;
+        }
+
+        TelegramMessageDto candidateMessage = candidate.message();
+        if (seed.chat() == null || candidateMessage.chat() == null) {
+            return false;
+        }
+
+        return seed.mediaGroupId() != null
+            && seed.mediaGroupId().equals(candidateMessage.mediaGroupId())
+            && seed.chat().id().equals(candidateMessage.chat().id())
+            && hasSupportedGroupPayload(candidateMessage);
     }
 
     private String extractArgument(String text) {

@@ -3,6 +3,7 @@ package com.vladislav.tgclone.telegram;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vladislav.tgclone.conversation.ConversationAttachmentDraft;
 import com.vladislav.tgclone.conversation.ConversationAttachmentKind;
@@ -17,6 +18,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.core.ParameterizedTypeReference;
@@ -107,8 +110,64 @@ public class TelegramBotClient {
         return sendMultipartMedia("/sendVoice", "voice", chatId, path, caption);
     }
 
+    public String sendVideoNote(String chatId, Path path) {
+        return sendMultipartMedia("/sendVideoNote", "video_note", chatId, path, null);
+    }
+
     public String sendDocument(String chatId, Path path, String caption) {
         return sendMultipartMedia("/sendDocument", "document", chatId, path, caption);
+    }
+
+    public String sendMediaGroup(String chatId, List<TelegramMediaGroupItem> items, String caption) {
+        ensureConfigured();
+        if (items == null || items.isEmpty()) {
+            throw new IllegalArgumentException("Telegram media group items are required");
+        }
+
+        try {
+            String boundary = "HermesBoundary" + System.nanoTime();
+            List<MultipartTextPart> textParts = new ArrayList<>();
+            List<MultipartFilePart> fileParts = new ArrayList<>();
+            List<Map<String, Object>> media = new ArrayList<>();
+
+            textParts.add(new MultipartTextPart("chat_id", chatId));
+            for (int index = 0; index < items.size(); index++) {
+                TelegramMediaGroupItem item = items.get(index);
+                String attachName = "file" + index;
+                Path path = item.path();
+                String fileName = path.getFileName() == null ? "attachment.bin" : path.getFileName().toString();
+                String contentType = URLConnection.guessContentTypeFromName(fileName);
+                if (contentType == null || contentType.isBlank()) {
+                    contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
+                }
+
+                Map<String, Object> mediaItem = new LinkedHashMap<>();
+                mediaItem.put("type", item.type());
+                mediaItem.put("media", "attach://" + attachName);
+                if (index == 0 && caption != null && !caption.isBlank()) {
+                    mediaItem.put("caption", caption);
+                }
+                media.add(mediaItem);
+                fileParts.add(new MultipartFilePart(attachName, path, fileName, contentType));
+            }
+            textParts.add(new MultipartTextPart("media", objectMapper.writeValueAsString(media)));
+
+            String responseBody = sendMultipartRequest("/sendMediaGroup", boundary, textParts, fileParts);
+            TelegramApiResponse<List<TelegramMessageDto>> parsed = objectMapper.readValue(
+                responseBody,
+                new TypeReference<TelegramApiResponse<List<TelegramMessageDto>>>() {
+                }
+            );
+            List<TelegramMessageDto> result = unwrap(parsed);
+            return result == null || result.isEmpty() || result.getFirst().messageId() == null
+                ? ""
+                : result.getFirst().messageId().toString();
+        } catch (IOException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            throw new IllegalStateException("Telegram media group upload failed", ex);
+        }
     }
 
     public ConversationAttachmentDraft downloadAttachment(
@@ -172,17 +231,19 @@ public class TelegramBotClient {
             }
 
             String boundary = "HermesBoundary" + System.nanoTime();
-            byte[] body = buildMultipartBody(boundary, partName, chatId, caption, path, fileName, contentType);
-
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("https://api.telegram.org/bot" + telegramProperties.botToken() + endpoint))
-                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            List<MultipartTextPart> textParts = new ArrayList<>();
+            textParts.add(new MultipartTextPart("chat_id", chatId));
+            if (caption != null && !caption.isBlank()) {
+                textParts.add(new MultipartTextPart("caption", caption));
+            }
+            String responseBody = sendMultipartRequest(
+                endpoint,
+                boundary,
+                textParts,
+                List.of(new MultipartFilePart(partName, path, fileName, contentType))
+            );
             TelegramApiResponse<TelegramMessageDto> parsed = objectMapper.readValue(
-                response.body(),
+                responseBody,
                 objectMapper.getTypeFactory().constructParametricType(TelegramApiResponse.class, TelegramMessageDto.class)
             );
             TelegramMessageDto result = unwrap(parsed);
@@ -203,6 +264,24 @@ public class TelegramBotClient {
         return response.result();
     }
 
+    private String sendMultipartRequest(
+        String endpoint,
+        String boundary,
+        List<MultipartTextPart> textParts,
+        List<MultipartFilePart> fileParts
+    ) throws IOException, InterruptedException {
+        byte[] body = buildMultipartBody(boundary, textParts, fileParts);
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("https://api.telegram.org/bot" + telegramProperties.botToken() + endpoint))
+            .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+            .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        return response.body();
+    }
+
     private String resolveFilename(String originalFilename, String filePath, ConversationAttachmentKind kind) {
         if (originalFilename != null && !originalFilename.isBlank()) {
             return originalFilename.trim();
@@ -217,6 +296,7 @@ public class TelegramBotClient {
         return switch (kind) {
             case PHOTO -> "telegram-photo.jpg";
             case VIDEO -> "telegram-video.mp4";
+            case VIDEO_NOTE -> "telegram-video-note.mp4";
             case VOICE -> "telegram-voice.ogg";
             case DOCUMENT -> "telegram-document.bin";
         };
@@ -235,6 +315,7 @@ public class TelegramBotClient {
         return switch (kind) {
             case PHOTO -> MediaType.IMAGE_JPEG_VALUE;
             case VIDEO -> "video/mp4";
+            case VIDEO_NOTE -> "video/mp4";
             case VOICE -> "audio/ogg";
             case DOCUMENT -> MediaType.APPLICATION_OCTET_STREAM_VALUE;
         };
@@ -242,29 +323,26 @@ public class TelegramBotClient {
 
     private byte[] buildMultipartBody(
         String boundary,
-        String partName,
-        String chatId,
-        String caption,
-        Path path,
-        String fileName,
-        String contentType
+        List<MultipartTextPart> textParts,
+        List<MultipartFilePart> fileParts
     ) throws IOException {
-        byte[] fileContent = Files.readAllBytes(path);
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-        writeTextPart(outputStream, boundary, "chat_id", chatId);
-        if (caption != null && !caption.isBlank()) {
-            writeTextPart(outputStream, boundary, "caption", caption);
+        for (MultipartTextPart textPart : textParts) {
+            writeTextPart(outputStream, boundary, textPart.name(), textPart.value());
         }
 
-        outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-        outputStream.write(
-            ("Content-Disposition: form-data; name=\"" + partName + "\"; filename=\"" + escapeQuotes(fileName) + "\"\r\n")
-                .getBytes(StandardCharsets.UTF_8)
-        );
-        outputStream.write(("Content-Type: " + contentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
-        outputStream.write(fileContent);
-        outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+        for (MultipartFilePart filePart : fileParts) {
+            byte[] fileContent = Files.readAllBytes(filePart.path());
+            outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+            outputStream.write(
+                ("Content-Disposition: form-data; name=\"" + filePart.name() + "\"; filename=\"" + escapeQuotes(filePart.fileName()) + "\"\r\n")
+                    .getBytes(StandardCharsets.UTF_8)
+            );
+            outputStream.write(("Content-Type: " + filePart.contentType() + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+            outputStream.write(fileContent);
+            outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+        }
         outputStream.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
         return outputStream.toByteArray();
     }
@@ -280,6 +358,18 @@ public class TelegramBotClient {
 
     private String escapeQuotes(String value) {
         return value.replace("\"", "\\\"");
+    }
+
+    public record TelegramMediaGroupItem(
+        String type,
+        Path path
+    ) {
+    }
+
+    private record MultipartTextPart(String name, String value) {
+    }
+
+    private record MultipartFilePart(String name, Path path, String fileName, String contentType) {
     }
 }
 
@@ -335,9 +425,13 @@ record TelegramMessageDto(
     Long date,
     String text,
     String caption,
+    @JsonProperty("media_group_id")
+    String mediaGroupId,
     List<TelegramPhotoSizeDto> photo,
     TelegramDocumentDto document,
     TelegramVideoDto video,
+    @JsonProperty("video_note")
+    TelegramVideoNoteDto videoNote,
     TelegramVoiceDto voice
 ) {
 
@@ -397,6 +491,17 @@ record TelegramVoiceDto(
     String fileUniqueId,
     @JsonProperty("mime_type")
     String mimeType,
+    @JsonProperty("file_size")
+    Long fileSize
+) {
+}
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+record TelegramVideoNoteDto(
+    @JsonProperty("file_id")
+    String fileId,
+    @JsonProperty("file_unique_id")
+    String fileUniqueId,
     @JsonProperty("file_size")
     Long fileSize
 ) {

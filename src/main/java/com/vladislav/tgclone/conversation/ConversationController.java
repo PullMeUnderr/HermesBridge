@@ -94,9 +94,10 @@ public class ConversationController {
         @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
         @PathVariable Long conversationId,
         @RequestParam(required = false) String body,
-        @RequestParam(name = "files", required = false) List<MultipartFile> files
+        @RequestParam(name = "files", required = false) List<MultipartFile> files,
+        @RequestParam(name = "sendAsVideoNote", defaultValue = "false") boolean sendAsVideoNote
     ) {
-        List<ConversationAttachmentDraft> attachments = toAttachmentDrafts(files);
+        List<ConversationAttachmentDraft> attachments = toAttachmentDrafts(files, sendAsVideoNote);
         ConversationMessage message = conversationService.createInternalMessage(
             authenticatedUser,
             conversationId,
@@ -142,7 +143,7 @@ public class ConversationController {
         return ConversationMemberResponse.from(member);
     }
 
-    private List<ConversationAttachmentDraft> toAttachmentDrafts(List<MultipartFile> files) {
+    private List<ConversationAttachmentDraft> toAttachmentDrafts(List<MultipartFile> files, boolean sendAsVideoNote) {
         List<ConversationAttachmentDraft> drafts = new ArrayList<>();
         if (files == null || files.isEmpty()) {
             return drafts;
@@ -163,6 +164,19 @@ public class ConversationController {
                 ));
             } catch (Exception ex) {
                 throw new IllegalArgumentException("Failed to read uploaded attachment");
+            }
+        }
+
+        if (sendAsVideoNote && drafts.size() == 1) {
+            ConversationAttachmentDraft draft = drafts.getFirst();
+            if (draft.kind() == ConversationAttachmentKind.VIDEO) {
+                drafts.set(0, new ConversationAttachmentDraft(
+                    ConversationAttachmentKind.VIDEO_NOTE,
+                    draft.originalFilename(),
+                    draft.mimeType(),
+                    draft.sizeBytes(),
+                    draft.content()
+                ));
             }
         }
 

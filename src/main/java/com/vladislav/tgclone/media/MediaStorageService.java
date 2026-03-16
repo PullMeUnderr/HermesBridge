@@ -75,7 +75,10 @@ public class MediaStorageService {
 
     private String normalizeMimeType(String mimeType, String filename) {
         if (mimeType != null && !mimeType.isBlank()) {
-            return mimeType.trim();
+            String normalized = mimeType.trim();
+            if (!normalized.equalsIgnoreCase("application/octet-stream")) {
+                return normalized;
+            }
         }
 
         String guessed = URLConnection.guessContentTypeFromName(filename);

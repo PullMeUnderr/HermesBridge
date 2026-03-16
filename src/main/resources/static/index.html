@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/app.css?v=20260317-media-2">
+    <link rel="stylesheet" href="/app.css?v=20260317-polling-stable-1">
 </head>
 <body>
 <div class="page-shell">
@@ -230,11 +230,24 @@
                             <div id="messagesList" class="messages-list"></div>
                             <form id="messageForm" class="message-form">
                                 <div class="message-composer-meta">
-                                    <label class="attachment-picker" for="messageAttachmentsInput">
-                                        <input id="messageAttachmentsInput" type="file" multiple accept="image/*,.pdf,.doc,.docx,.txt,.zip,.rtf,application/*">
-                                        <span>Добавить файлы</span>
-                                    </label>
+                                    <div class="message-composer-tools">
+                                        <label class="attachment-picker" for="messageAttachmentsInput">
+                                            <input id="messageAttachmentsInput" type="file" multiple accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.bmp,.heic,.heif,video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,audio/*,.ogg,.oga,.opus,.mp3,.m4a,.aac,.wav,.webm,.pdf,.doc,.docx,.txt,.zip,.rtf,application/*">
+                                            <span>Добавить файлы</span>
+                                        </label>
+                                        <button id="recordVoiceButton" type="button" class="ghost-button voice-record-button">Голосовое</button>
+                                    </div>
                                     <span id="attachmentSelectionLabel" class="composer-hint">Без вложений</span>
+                                </div>
+                                <div id="recordedVoicePreview" class="recorded-voice-preview hidden">
+                                    <div class="recorded-voice-header">
+                                        <div>
+                                            <div id="recordedVoiceStatus" class="section-caption">Голосовое</div>
+                                            <div id="recordedVoiceMeta" class="composer-hint">Готово к отправке</div>
+                                        </div>
+                                        <button id="clearRecordedVoiceButton" type="button" class="ghost-button compact-button">Удалить</button>
+                                    </div>
+                                    <audio id="recordedVoiceAudio" class="attachment-audio hidden" controls preload="metadata"></audio>
                                 </div>
                                 <textarea id="messageInput" rows="2" placeholder="Напиши сообщение..."></textarea>
                                 <div class="message-form-actions">
@@ -271,6 +284,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/app.js?v=20260317-media-2" defer></script>
+<script src="/app.js?v=20260317-polling-stable-1" defer></script>
 </body>
 </html>

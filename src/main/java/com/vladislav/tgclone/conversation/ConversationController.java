@@ -155,7 +155,7 @@ public class ConversationController {
 
             try {
                 drafts.add(new ConversationAttachmentDraft(
-                    detectAttachmentKind(file.getContentType()),
+                    detectAttachmentKind(file.getContentType(), file.getOriginalFilename()),
                     file.getOriginalFilename(),
                     file.getContentType(),
                     file.getSize(),
@@ -169,10 +169,48 @@ public class ConversationController {
         return drafts;
     }
 
-    private ConversationAttachmentKind detectAttachmentKind(String contentType) {
-        if (contentType != null && contentType.startsWith("image/")) {
+    private ConversationAttachmentKind detectAttachmentKind(String contentType, String originalFilename) {
+        String normalizedContentType = contentType == null ? "" : contentType.trim().toLowerCase();
+        if (normalizedContentType.startsWith("image/")) {
             return ConversationAttachmentKind.PHOTO;
         }
+        if (normalizedContentType.startsWith("video/")) {
+            return ConversationAttachmentKind.VIDEO;
+        }
+        if (normalizedContentType.startsWith("audio/")) {
+            return ConversationAttachmentKind.VOICE;
+        }
+
+        String normalizedFilename = originalFilename == null ? "" : originalFilename.trim().toLowerCase();
+        if (normalizedFilename.endsWith(".jpg")
+            || normalizedFilename.endsWith(".jpeg")
+            || normalizedFilename.endsWith(".png")
+            || normalizedFilename.endsWith(".gif")
+            || normalizedFilename.endsWith(".webp")
+            || normalizedFilename.endsWith(".bmp")
+            || normalizedFilename.endsWith(".heic")
+            || normalizedFilename.endsWith(".heif")) {
+            return ConversationAttachmentKind.PHOTO;
+        }
+        if (normalizedFilename.endsWith(".mp4")
+            || normalizedFilename.endsWith(".mov")
+            || normalizedFilename.endsWith(".m4v")
+            || normalizedFilename.endsWith(".webm")
+            || normalizedFilename.endsWith(".mkv")
+            || normalizedFilename.endsWith(".avi")) {
+            return ConversationAttachmentKind.VIDEO;
+        }
+        if (normalizedFilename.endsWith(".ogg")
+            || normalizedFilename.endsWith(".oga")
+            || normalizedFilename.endsWith(".opus")
+            || normalizedFilename.endsWith(".mp3")
+            || normalizedFilename.endsWith(".m4a")
+            || normalizedFilename.endsWith(".aac")
+            || normalizedFilename.endsWith(".wav")
+            || normalizedFilename.endsWith(".webm")) {
+            return ConversationAttachmentKind.VOICE;
+        }
+
         return ConversationAttachmentKind.DOCUMENT;
     }
 }

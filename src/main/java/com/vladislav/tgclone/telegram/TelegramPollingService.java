@@ -568,7 +568,9 @@ public class TelegramPollingService {
         return (message.text() != null && !message.text().isBlank())
             || (message.caption() != null && !message.caption().isBlank())
             || (message.photo() != null && !message.photo().isEmpty())
-            || message.document() != null;
+            || message.document() != null
+            || message.video() != null
+            || message.voice() != null;
     }
 
     private String extractInboundBody(TelegramMessageDto message) {
@@ -603,6 +605,28 @@ public class TelegramPollingService {
                 document.fileName(),
                 document.mimeType(),
                 document.fileSize()
+            ));
+        }
+
+        TelegramVideoDto video = message.video();
+        if (video != null && video.fileId() != null && !video.fileId().isBlank()) {
+            attachments.add(telegramBotClient.downloadAttachment(
+                video.fileId(),
+                ConversationAttachmentKind.VIDEO,
+                video.fileName(),
+                video.mimeType(),
+                video.fileSize()
+            ));
+        }
+
+        TelegramVoiceDto voice = message.voice();
+        if (voice != null && voice.fileId() != null && !voice.fileId().isBlank()) {
+            attachments.add(telegramBotClient.downloadAttachment(
+                voice.fileId(),
+                ConversationAttachmentKind.VOICE,
+                "telegram-voice-" + message.messageId() + ".ogg",
+                voice.mimeType(),
+                voice.fileSize()
             ));
         }
 

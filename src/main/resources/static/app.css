@@ -887,6 +887,11 @@ button:disabled {
     overflow: hidden;
 }
 
+.attachment-card-video,
+.attachment-card-voice {
+    overflow: hidden;
+}
+
 .attachment-image {
     display: block;
     width: 100%;
@@ -895,6 +900,19 @@ button:disabled {
     object-fit: cover;
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.04);
+}
+
+.attachment-video {
+    display: block;
+    width: 100%;
+    max-width: 420px;
+    max-height: 320px;
+    border-radius: 14px;
+    background: rgba(4, 10, 18, 0.78);
+}
+
+.attachment-audio {
+    width: min(100%, 320px);
 }
 
 .attachment-caption {
@@ -945,6 +963,13 @@ button:disabled {
     flex-wrap: wrap;
 }
 
+.message-composer-tools {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
 .attachment-picker {
     position: relative;
     display: inline-flex;
@@ -959,6 +984,12 @@ button:disabled {
     cursor: pointer;
 }
 
+.voice-record-button.recording {
+    border-color: rgba(255, 125, 152, 0.38);
+    background: rgba(255, 125, 152, 0.12);
+    color: #ffd0d9;
+}
+
 .attachment-picker input {
     position: absolute;
     inset: 0;
@@ -969,6 +1000,27 @@ button:disabled {
 .composer-hint {
     color: var(--muted);
     font-size: 0.8rem;
+}
+
+.recorded-voice-preview {
+    display: grid;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(116, 198, 255, 0.14);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.recorded-voice-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.compact-button {
+    min-height: 38px;
+    padding: 0 14px;
 }
 
 .members-panel {

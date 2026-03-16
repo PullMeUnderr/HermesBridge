@@ -56,15 +56,44 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
 
     private String deliverAttachment(TransportBinding binding, ConversationAttachment attachment, String caption) {
         java.nio.file.Path path = mediaStorageService.resolve(attachment.getStorageKey());
-        if (attachment.getKind() == com.vladislav.tgclone.conversation.ConversationAttachmentKind.PHOTO
-            && shouldSendAsPhoto(attachment)) {
+        return switch (attachment.getKind()) {
+            case PHOTO -> deliverPhoto(binding, attachment, path, caption);
+            case VIDEO -> deliverVideo(binding, attachment, path, caption);
+            case VOICE -> deliverVoice(binding, attachment, path, caption);
+            case DOCUMENT -> telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption);
+        };
+    }
+
+    private String deliverPhoto(TransportBinding binding, ConversationAttachment attachment, java.nio.file.Path path, String caption) {
+        if (shouldSendAsPhoto(attachment)) {
             try {
                 return telegramBotClient.sendPhoto(binding.getExternalChatId(), path, caption);
             } catch (Exception ignored) {
-                // Some image formats are rejected by sendPhoto. Fall back to sendDocument instead of dropping the file.
+                // Fall through to document.
             }
         }
+        return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption);
+    }
 
+    private String deliverVideo(TransportBinding binding, ConversationAttachment attachment, java.nio.file.Path path, String caption) {
+        if (shouldSendAsVideo(attachment)) {
+            try {
+                return telegramBotClient.sendVideo(binding.getExternalChatId(), path, caption);
+            } catch (Exception ignored) {
+                // Fall through to document.
+            }
+        }
+        return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption);
+    }
+
+    private String deliverVoice(TransportBinding binding, ConversationAttachment attachment, java.nio.file.Path path, String caption) {
+        if (shouldSendAsVoice(attachment)) {
+            try {
+                return telegramBotClient.sendVoice(binding.getExternalChatId(), path, caption);
+            } catch (Exception ignored) {
+                // Fall through to document.
+            }
+        }
         return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption);
     }
 
@@ -79,5 +108,55 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
             case "image/heic", "image/heif" -> false;
             default -> normalized.startsWith("image/");
         };
+    }
+
+    private boolean shouldSendAsVideo(ConversationAttachment attachment) {
+        String mimeType = attachment.getMimeType();
+        if (mimeType != null && !mimeType.isBlank() && mimeType.trim().toLowerCase().startsWith("video/")) {
+            return true;
+        }
+
+        String fileName = attachment.getOriginalFilename();
+        if (fileName == null || fileName.isBlank()) {
+            return false;
+        }
+
+        String normalizedName = fileName.trim().toLowerCase();
+        return normalizedName.endsWith(".mp4")
+            || normalizedName.endsWith(".mov")
+            || normalizedName.endsWith(".m4v")
+            || normalizedName.endsWith(".webm")
+            || normalizedName.endsWith(".mkv")
+            || normalizedName.endsWith(".avi");
+    }
+
+    private boolean shouldSendAsVoice(ConversationAttachment attachment) {
+        String mimeType = attachment.getMimeType();
+        if (mimeType != null && !mimeType.isBlank()) {
+            String normalized = mimeType.trim().toLowerCase();
+            if (normalized.startsWith("audio/ogg")
+                || normalized.equals("audio/mpeg")
+                || normalized.equals("audio/mp3")
+                || normalized.equals("audio/mp4")
+                || normalized.equals("audio/x-m4a")
+                || normalized.equals("audio/aac")
+                || normalized.equals("audio/webm")
+                || normalized.equals("audio/x-webm")) {
+                return true;
+            }
+        }
+
+        String fileName = attachment.getOriginalFilename();
+        if (fileName == null) {
+            return false;
+        }
+
+        String normalizedName = fileName.trim().toLowerCase();
+        return normalizedName.endsWith(".ogg")
+            || normalizedName.endsWith(".oga")
+            || normalizedName.endsWith(".opus")
+            || normalizedName.endsWith(".mp3")
+            || normalizedName.endsWith(".m4a")
+            || normalizedName.endsWith(".webm");
     }
 }

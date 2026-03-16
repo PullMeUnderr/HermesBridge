@@ -2,14 +2,25 @@ const state = {
   token: localStorage.getItem("hermes_token") || "",
   me: null,
   conversations: [],
+  conversationsSignature: "",
   selectedConversationId: null,
   currentMessages: [],
+  currentMessagesSignature: "",
   currentMembers: [],
+  currentMembersSignature: "",
   pollHandle: null,
   lastSyncAt: null,
   sidebarDrawerMode: null,
   attachmentObjectUrls: new Map(),
   messageSubmitInFlight: false,
+  voiceRecorder: null,
+  voiceRecorderStream: null,
+  voiceRecorderChunks: [],
+  voiceRecorderMimeType: "",
+  discardRecordedVoiceOnStop: false,
+  recordedVoiceFile: null,
+  recordedVoiceObjectUrl: null,
+  isRecordingVoice: false,
 };
 
 const elements = {
@@ -51,6 +62,12 @@ const elements = {
   messageInput: document.getElementById("messageInput"),
   messageAttachmentsInput: document.getElementById("messageAttachmentsInput"),
   attachmentSelectionLabel: document.getElementById("attachmentSelectionLabel"),
+  recordVoiceButton: document.getElementById("recordVoiceButton"),
+  recordedVoicePreview: document.getElementById("recordedVoicePreview"),
+  recordedVoiceStatus: document.getElementById("recordedVoiceStatus"),
+  recordedVoiceMeta: document.getElementById("recordedVoiceMeta"),
+  recordedVoiceAudio: document.getElementById("recordedVoiceAudio"),
+  clearRecordedVoiceButton: document.getElementById("clearRecordedVoiceButton"),
   sendMessageButton: document.getElementById("sendMessageButton"),
   toast: document.getElementById("toast"),
 };
@@ -74,12 +91,16 @@ elements.logoutButton.addEventListener("click", () => {
   state.token = "";
   state.me = null;
   state.conversations = [];
+  state.conversationsSignature = "";
   state.selectedConversationId = null;
   state.currentMessages = [];
+  state.currentMessagesSignature = "";
   state.currentMembers = [];
+  state.currentMembersSignature = "";
   state.lastSyncAt = null;
   state.sidebarDrawerMode = null;
   state.messageSubmitInFlight = false;
+  discardRecordedVoice();
   resetAttachmentObjectUrls();
   stopPolling();
   render();
@@ -176,6 +197,24 @@ elements.messageAttachmentsInput.addEventListener("change", () => {
   renderSelectedAttachments();
 });
 
+elements.recordVoiceButton.addEventListener("click", async () => {
+  if (state.isRecordingVoice) {
+    stopVoiceRecording();
+    return;
+  }
+
+  await startVoiceRecording();
+});
+
+elements.clearRecordedVoiceButton.addEventListener("click", () => {
+  if (state.isRecordingVoice) {
+    stopVoiceRecording(true);
+    return;
+  }
+
+  discardRecordedVoice();
+});
+
 elements.messageForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.selectedConversationId || state.messageSubmitInFlight) {
@@ -183,7 +222,12 @@ elements.messageForm.addEventListener("submit", async (event) => {
   }
 
   const body = elements.messageInput.value.trim();
-  const files = Array.from(elements.messageAttachmentsInput.files || []);
+  if (state.isRecordingVoice) {
+    showToast("Сначала останови запись голосового.", "error");
+    return;
+  }
+
+  const files = getComposerFiles();
   if (!body && files.length === 0) {
     return;
   }
@@ -191,7 +235,7 @@ elements.messageForm.addEventListener("submit", async (event) => {
   state.messageSubmitInFlight = true;
   renderComposerState();
 
-  if (files.length > 0) {
+  if ((elements.messageAttachmentsInput.files || []).length > 0) {
     elements.messageAttachmentsInput.value = "";
     renderSelectedAttachments();
   }
@@ -244,25 +288,44 @@ async function bootstrapSession() {
       selectConversation(state.selectedConversationId || state.conversations[0].id);
     }
   } catch (error) {
+    discardRecordedVoice();
     localStorage.removeItem("hermes_token");
     state.token = "";
     state.me = null;
+    state.conversationsSignature = "";
+    state.currentMessagesSignature = "";
+    state.currentMembersSignature = "";
     render();
     showToast(error.message, "error");
   }
 }
 
 async function loadConversations() {
-  state.conversations = await api("/api/conversations");
-  touchSync();
-  if (
+  const conversations = await api("/api/conversations");
+  const conversationsSignature = buildConversationsSignature(conversations);
+  const selectedConversationMissing =
     state.selectedConversationId &&
-    !state.conversations.some((conversation) => conversation.id === state.selectedConversationId)
+    !conversations.some((conversation) => conversation.id === state.selectedConversationId);
+
+  state.conversations = conversations;
+  if (
+    selectedConversationMissing
   ) {
     state.selectedConversationId = null;
     state.currentMessages = [];
+    state.currentMessagesSignature = "";
     state.currentMembers = [];
+    state.currentMembersSignature = "";
+    resetAttachmentObjectUrls();
   }
+
+  const conversationsChanged = conversationsSignature !== state.conversationsSignature;
+  if (!conversationsChanged && !selectedConversationMissing) {
+    return;
+  }
+
+  state.conversationsSignature = conversationsSignature;
+  touchSync();
   renderConversationList();
   renderWorkspaceHeader();
   renderConversationHeader();
@@ -278,12 +341,29 @@ async function loadMessages(conversationId) {
     return;
   }
 
-  resetAttachmentObjectUrls();
-  state.currentMessages = messages;
-  state.currentMembers = members;
+  const messagesSignature = buildMessagesSignature(messages);
+  const membersSignature = buildMembersSignature(members);
+  const messagesChanged = messagesSignature !== state.currentMessagesSignature;
+  const membersChanged = membersSignature !== state.currentMembersSignature;
+
+  if (!messagesChanged && !membersChanged) {
+    return;
+  }
+
+  if (messagesChanged) {
+    resetAttachmentObjectUrls();
+    state.currentMessages = messages;
+    state.currentMessagesSignature = messagesSignature;
+    renderMessages();
+  }
+
+  if (membersChanged) {
+    state.currentMembers = members;
+    state.currentMembersSignature = membersSignature;
+    renderMembers(members);
+  }
+
   touchSync();
-  renderMessages();
-  renderMembers(members);
   renderConversationHeader();
   renderWorkspaceHeader();
 }
@@ -299,7 +379,10 @@ async function refreshCurrentConversation() {
 function selectConversation(conversationId) {
   state.selectedConversationId = conversationId;
   state.currentMessages = [];
+  state.currentMessagesSignature = "";
   state.currentMembers = [];
+  state.currentMembersSignature = "";
+  resetAttachmentObjectUrls();
   renderConversationList();
   renderConversationHeader();
   renderWorkspaceHeader();
@@ -542,7 +625,7 @@ function renderMembers(members) {
 function startPolling() {
   stopPolling();
   state.pollHandle = window.setInterval(() => {
-    if (!state.me) {
+    if (!state.me || document.hidden || shouldPausePolling()) {
       return;
     }
     loadConversations().catch(() => {});
@@ -561,6 +644,10 @@ function stopPolling() {
 
 function touchSync() {
   state.lastSyncAt = new Date().toISOString();
+}
+
+function shouldPausePolling() {
+  return state.messageSubmitInFlight || state.isRecordingVoice;
 }
 
 async function guardedAction(action) {
@@ -655,6 +742,58 @@ function renderAttachmentCard(attachment) {
     `;
   }
 
+  if (attachment.kind === "VIDEO") {
+    return `
+      <figure class="attachment-card attachment-card-video">
+        <video
+          class="attachment-video hidden"
+          controls
+          preload="metadata"
+          data-attachment-preview-id="${attachment.id}"
+          data-content-url="${escapeHtml(attachment.contentUrl)}"
+        ></video>
+        <figcaption class="attachment-caption">
+          <span>${escapeHtml(attachment.fileName)}</span>
+          <button
+            class="attachment-link"
+            type="button"
+            data-download-attachment-id="${attachment.id}"
+            data-file-name="${escapeHtml(attachment.fileName)}"
+            data-content-url="${escapeHtml(attachment.contentUrl)}"
+          >
+            Скачать
+          </button>
+        </figcaption>
+      </figure>
+    `;
+  }
+
+  if (attachment.kind === "VOICE") {
+    return `
+      <div class="attachment-card attachment-card-voice">
+        <audio
+          class="attachment-audio hidden"
+          controls
+          preload="metadata"
+          data-attachment-preview-id="${attachment.id}"
+          data-content-url="${escapeHtml(attachment.contentUrl)}"
+        ></audio>
+        <div class="attachment-caption">
+          <span>${escapeHtml(attachment.fileName)}</span>
+          <button
+            class="attachment-link"
+            type="button"
+            data-download-attachment-id="${attachment.id}"
+            data-file-name="${escapeHtml(attachment.fileName)}"
+            data-content-url="${escapeHtml(attachment.contentUrl)}"
+          >
+            Скачать
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
   return `
     <div class="attachment-card attachment-card-document">
       <div>
@@ -687,18 +826,18 @@ function bindAttachmentActions() {
 }
 
 async function hydrateAttachmentPreviews() {
-  const images = Array.from(elements.messagesList.querySelectorAll("[data-attachment-preview-id]"));
+  const mediaElements = Array.from(elements.messagesList.querySelectorAll("[data-attachment-preview-id]"));
   await Promise.all(
-    images.map(async (image) => {
+    mediaElements.map(async (mediaElement) => {
       try {
         const objectUrl = await ensureAttachmentObjectUrl(
-          image.dataset.attachmentPreviewId,
-          image.dataset.contentUrl
+          mediaElement.dataset.attachmentPreviewId,
+          mediaElement.dataset.contentUrl
         );
-        image.src = objectUrl;
-        image.classList.remove("hidden");
+        mediaElement.src = objectUrl;
+        mediaElement.classList.remove("hidden");
       } catch (error) {
-        image.remove();
+        mediaElement.remove();
       }
     })
   );
@@ -750,18 +889,29 @@ async function downloadAttachment(contentUrl, fileName) {
 
 function renderSelectedAttachments() {
   const files = Array.from(elements.messageAttachmentsInput.files || []);
-  if (files.length === 0) {
-    elements.attachmentSelectionLabel.textContent = "Без вложений";
-    return;
+  const selectedFilesSize = files.reduce((sum, file) => sum + file.size, 0);
+  const parts = [];
+
+  if (files.length > 0) {
+    parts.push(`${files.length} файл(ов) · ${formatBytes(selectedFilesSize)}`);
   }
 
-  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-  elements.attachmentSelectionLabel.textContent = `${files.length} файл(ов) · ${formatBytes(totalSize)}`;
+  if (state.recordedVoiceFile) {
+    parts.push(`голосовое · ${formatBytes(state.recordedVoiceFile.size)}`);
+  }
+
+  if (state.isRecordingVoice) {
+    parts.push("идет запись голосового");
+  }
+
+  elements.attachmentSelectionLabel.textContent = parts.length > 0 ? parts.join(" + ") : "Без вложений";
+  renderRecordedVoicePreview();
 }
 
 function resetComposer() {
   elements.messageInput.value = "";
   elements.messageAttachmentsInput.value = "";
+  discardRecordedVoice();
   renderSelectedAttachments();
 }
 
@@ -769,8 +919,16 @@ function renderComposerState() {
   const disabled = !state.selectedConversationId || state.messageSubmitInFlight;
   elements.messageInput.disabled = disabled;
   elements.messageAttachmentsInput.disabled = disabled;
+  elements.recordVoiceButton.disabled =
+    disabled || (!state.isRecordingVoice && !browserSupportsVoiceRecording());
+  elements.clearRecordedVoiceButton.disabled =
+    disabled || (!state.isRecordingVoice && !state.recordedVoiceFile);
   elements.sendMessageButton.disabled = disabled;
+  elements.recordVoiceButton.textContent = state.isRecordingVoice ? "Стоп" : "Голосовое";
+  elements.recordVoiceButton.classList.toggle("recording", state.isRecordingVoice);
+  elements.clearRecordedVoiceButton.textContent = state.isRecordingVoice ? "Отмена" : "Удалить";
   elements.sendMessageButton.textContent = state.messageSubmitInFlight ? "Отправляем..." : "Отправить";
+  renderRecordedVoicePreview();
 }
 
 function resetAttachmentObjectUrls() {
@@ -827,6 +985,74 @@ function formatBytes(value) {
   return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+function buildConversationsSignature(conversations) {
+  if (!Array.isArray(conversations) || conversations.length === 0) {
+    return "empty";
+  }
+
+  return conversations
+    .map((conversation) =>
+      [
+        conversation.id,
+        conversation.title,
+        conversation.membershipRole,
+        conversation.createdAt,
+      ].join("|")
+    )
+    .join("::");
+}
+
+function buildMessagesSignature(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return "empty";
+  }
+
+  return messages
+    .map((message) => {
+      const attachmentSignature = (message.attachments || [])
+        .map((attachment) =>
+          [
+            attachment.id,
+            attachment.kind,
+            attachment.fileName,
+            attachment.mimeType,
+            attachment.sizeBytes,
+            attachment.cacheKey || attachment.contentUrl,
+          ].join("|")
+        )
+        .join(",");
+
+      return [
+        message.id,
+        message.sourceTransport,
+        message.authorUserId,
+        message.authorExternalId,
+        message.authorDisplayName,
+        message.body,
+        message.createdAt,
+        attachmentSignature,
+      ].join("|");
+    })
+    .join("::");
+}
+
+function buildMembersSignature(members) {
+  if (!Array.isArray(members) || members.length === 0) {
+    return "empty";
+  }
+
+  return members
+    .map((member) =>
+      [
+        member.userId,
+        member.username,
+        member.displayName,
+        member.role,
+      ].join("|")
+    )
+    .join("::");
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -851,6 +1077,220 @@ function getInitials(value) {
   }
 
   return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+function getComposerFiles() {
+  const files = Array.from(elements.messageAttachmentsInput.files || []);
+  if (state.recordedVoiceFile) {
+    files.push(state.recordedVoiceFile);
+  }
+  return files;
+}
+
+function renderRecordedVoicePreview() {
+  const visible = state.isRecordingVoice || Boolean(state.recordedVoiceFile);
+  elements.recordedVoicePreview.classList.toggle("hidden", !visible);
+  if (!visible) {
+    elements.recordedVoiceAudio.pause();
+    elements.recordedVoiceAudio.removeAttribute("src");
+    elements.recordedVoiceAudio.classList.add("hidden");
+    return;
+  }
+
+  if (state.isRecordingVoice) {
+    elements.recordedVoiceStatus.textContent = "Запись...";
+    elements.recordedVoiceMeta.textContent = "Микрофон активен. Нажми «Стоп», чтобы подготовить голосовое к отправке.";
+    elements.recordedVoiceAudio.pause();
+    elements.recordedVoiceAudio.removeAttribute("src");
+    elements.recordedVoiceAudio.classList.add("hidden");
+    return;
+  }
+
+  elements.recordedVoiceStatus.textContent = "Голосовое";
+  elements.recordedVoiceMeta.textContent = `Готово к отправке · ${formatBytes(state.recordedVoiceFile?.size || 0)}`;
+  if (state.recordedVoiceObjectUrl) {
+    elements.recordedVoiceAudio.src = state.recordedVoiceObjectUrl;
+    elements.recordedVoiceAudio.classList.remove("hidden");
+  } else {
+    elements.recordedVoiceAudio.pause();
+    elements.recordedVoiceAudio.removeAttribute("src");
+    elements.recordedVoiceAudio.classList.add("hidden");
+  }
+}
+
+async function startVoiceRecording() {
+  if (state.messageSubmitInFlight) {
+    return;
+  }
+
+  if (!browserSupportsVoiceRecording()) {
+    showToast("Этот браузер не поддерживает запись голосовых.", "error");
+    return;
+  }
+
+  discardRecordedVoice();
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (error) {
+    showToast("Не удалось получить доступ к микрофону.", "error");
+    return;
+  }
+
+  const preferredFormat = selectPreferredVoiceRecordingFormat();
+  let recorder;
+  try {
+    recorder = preferredFormat
+      ? new MediaRecorder(stream, { mimeType: preferredFormat.mimeType })
+      : new MediaRecorder(stream);
+  } catch (error) {
+    stopMediaStream(stream);
+    showToast("Не удалось запустить запись в этом браузере.", "error");
+    return;
+  }
+
+  state.voiceRecorder = recorder;
+  state.voiceRecorderStream = stream;
+  state.voiceRecorderChunks = [];
+  state.voiceRecorderMimeType = recorder.mimeType || preferredFormat?.mimeType || "audio/webm";
+  state.discardRecordedVoiceOnStop = false;
+  state.isRecordingVoice = true;
+
+  recorder.addEventListener("dataavailable", handleVoiceRecordingChunk);
+  recorder.addEventListener("stop", handleVoiceRecordingStopped, { once: true });
+  recorder.start();
+  renderSelectedAttachments();
+  renderComposerState();
+}
+
+function stopVoiceRecording(discard = false) {
+  if (!state.voiceRecorder || state.voiceRecorder.state === "inactive") {
+    return;
+  }
+
+  state.discardRecordedVoiceOnStop = discard;
+  state.isRecordingVoice = false;
+  state.voiceRecorder.stop();
+  renderSelectedAttachments();
+  renderComposerState();
+}
+
+function handleVoiceRecordingChunk(event) {
+  if (event.data && event.data.size > 0) {
+    state.voiceRecorderChunks.push(event.data);
+  }
+}
+
+function handleVoiceRecordingStopped() {
+  const recorder = state.voiceRecorder;
+  const blob = new Blob(state.voiceRecorderChunks, {
+    type: state.voiceRecorderMimeType || recorder?.mimeType || "audio/webm",
+  });
+  const shouldDiscard = state.discardRecordedVoiceOnStop;
+  cleanupVoiceRecorder();
+
+  if (shouldDiscard || blob.size === 0) {
+    renderSelectedAttachments();
+    renderComposerState();
+    if (!shouldDiscard) {
+      showToast("Не удалось записать голосовое.", "error");
+    }
+    return;
+  }
+
+  const mimeType = blob.type || "audio/webm";
+  const fileName = `voice-${createRecordingTimestamp()}.${resolveVoiceRecordingExtension(mimeType)}`;
+  state.recordedVoiceFile = new File([blob], fileName, {
+    type: mimeType,
+    lastModified: Date.now(),
+  });
+  state.recordedVoiceObjectUrl = URL.createObjectURL(blob);
+  renderSelectedAttachments();
+  renderComposerState();
+}
+
+function cleanupVoiceRecorder() {
+  if (state.voiceRecorderStream) {
+    stopMediaStream(state.voiceRecorderStream);
+  }
+  state.voiceRecorder = null;
+  state.voiceRecorderStream = null;
+  state.voiceRecorderChunks = [];
+  state.voiceRecorderMimeType = "";
+  state.discardRecordedVoiceOnStop = false;
+  state.isRecordingVoice = false;
+}
+
+function discardRecordedVoice() {
+  if (state.isRecordingVoice) {
+    stopVoiceRecording(true);
+    return;
+  }
+
+  if (state.recordedVoiceObjectUrl) {
+    URL.revokeObjectURL(state.recordedVoiceObjectUrl);
+  }
+  state.recordedVoiceObjectUrl = null;
+  state.recordedVoiceFile = null;
+  renderSelectedAttachments();
+  renderComposerState();
+}
+
+function stopMediaStream(stream) {
+  stream.getTracks().forEach((track) => track.stop());
+}
+
+function browserSupportsVoiceRecording() {
+  return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+}
+
+function selectPreferredVoiceRecordingFormat() {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return null;
+  }
+
+  const candidates = [
+    { mimeType: "audio/mp4;codecs=mp4a.40.2" },
+    { mimeType: "audio/mp4" },
+    { mimeType: "audio/ogg;codecs=opus" },
+    { mimeType: "audio/ogg" },
+    { mimeType: "audio/webm;codecs=opus" },
+    { mimeType: "audio/webm" },
+  ];
+
+  return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate.mimeType)) || null;
+}
+
+function resolveVoiceRecordingExtension(mimeType) {
+  const normalized = String(mimeType || "").toLowerCase();
+  if (normalized.includes("mp4")) {
+    return "m4a";
+  }
+  if (normalized.includes("mpeg")) {
+    return "mp3";
+  }
+  if (normalized.includes("ogg")) {
+    return "ogg";
+  }
+  if (normalized.includes("webm")) {
+    return "webm";
+  }
+  return "ogg";
+}
+
+function createRecordingTimestamp() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  return [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+    "-",
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds()),
+  ].join("");
 }
 
 render();

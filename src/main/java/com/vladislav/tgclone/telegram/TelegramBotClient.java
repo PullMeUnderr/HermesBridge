@@ -99,6 +99,14 @@ public class TelegramBotClient {
         return sendMultipartMedia("/sendPhoto", "photo", chatId, path, caption);
     }
 
+    public String sendVideo(String chatId, Path path, String caption) {
+        return sendMultipartMedia("/sendVideo", "video", chatId, path, caption);
+    }
+
+    public String sendVoice(String chatId, Path path, String caption) {
+        return sendMultipartMedia("/sendVoice", "voice", chatId, path, caption);
+    }
+
     public String sendDocument(String chatId, Path path, String caption) {
         return sendMultipartMedia("/sendDocument", "document", chatId, path, caption);
     }
@@ -208,6 +216,8 @@ public class TelegramBotClient {
 
         return switch (kind) {
             case PHOTO -> "telegram-photo.jpg";
+            case VIDEO -> "telegram-video.mp4";
+            case VOICE -> "telegram-voice.ogg";
             case DOCUMENT -> "telegram-document.bin";
         };
     }
@@ -224,6 +234,8 @@ public class TelegramBotClient {
 
         return switch (kind) {
             case PHOTO -> MediaType.IMAGE_JPEG_VALUE;
+            case VIDEO -> "video/mp4";
+            case VOICE -> "audio/ogg";
             case DOCUMENT -> MediaType.APPLICATION_OCTET_STREAM_VALUE;
         };
     }
@@ -324,7 +336,9 @@ record TelegramMessageDto(
     String text,
     String caption,
     List<TelegramPhotoSizeDto> photo,
-    TelegramDocumentDto document
+    TelegramDocumentDto document,
+    TelegramVideoDto video,
+    TelegramVoiceDto voice
 ) {
 
     Instant sentAt() {
@@ -353,6 +367,34 @@ record TelegramDocumentDto(
     String fileUniqueId,
     @JsonProperty("file_name")
     String fileName,
+    @JsonProperty("mime_type")
+    String mimeType,
+    @JsonProperty("file_size")
+    Long fileSize
+) {
+}
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+record TelegramVideoDto(
+    @JsonProperty("file_id")
+    String fileId,
+    @JsonProperty("file_unique_id")
+    String fileUniqueId,
+    @JsonProperty("file_name")
+    String fileName,
+    @JsonProperty("mime_type")
+    String mimeType,
+    @JsonProperty("file_size")
+    Long fileSize
+) {
+}
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+record TelegramVoiceDto(
+    @JsonProperty("file_id")
+    String fileId,
+    @JsonProperty("file_unique_id")
+    String fileUniqueId,
     @JsonProperty("mime_type")
     String mimeType,
     @JsonProperty("file_size")

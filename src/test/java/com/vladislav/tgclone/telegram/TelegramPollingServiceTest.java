@@ -12,6 +12,8 @@ import com.vladislav.tgclone.account.TelegramRegistrationService;
 import com.vladislav.tgclone.bridge.MessageRelayService;
 import com.vladislav.tgclone.bridge.TransportBindingService;
 import com.vladislav.tgclone.conversation.Conversation;
+import com.vladislav.tgclone.conversation.ConversationAttachmentDraft;
+import com.vladislav.tgclone.conversation.ConversationAttachmentKind;
 import com.vladislav.tgclone.conversation.ConversationMember;
 import com.vladislav.tgclone.conversation.ConversationMemberRole;
 import com.vladislav.tgclone.conversation.ConversationService;
@@ -19,6 +21,7 @@ import com.vladislav.tgclone.conversation.ConversationInviteAcceptanceResult;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -208,6 +211,83 @@ class TelegramPollingServiceTest {
         verify(telegramBotClient).sendMessage(eq("100500"), contains("Готово, ты вступил в чат."), any());
     }
 
+    @Test
+    void pollProcessesInboundVideoAndVoiceAttachments() {
+        TelegramUpdateDto videoUpdate = new TelegramUpdateDto(
+            103L,
+            new TelegramMessageDto(
+                700L,
+                new TelegramChatDto(-100123L, "Hermes group", "supergroup"),
+                new TelegramUserDto(42L, "Alice", null, "alice"),
+                1_763_650_100L,
+                null,
+                "video caption",
+                null,
+                null,
+                new TelegramVideoDto("video-file", "video-unique", "clip.mp4", "video/mp4", 5_000L),
+                null
+            ),
+            null
+        );
+        TelegramUpdateDto voiceUpdate = new TelegramUpdateDto(
+            104L,
+            new TelegramMessageDto(
+                701L,
+                new TelegramChatDto(-100123L, "Hermes group", "supergroup"),
+                new TelegramUserDto(42L, "Alice", null, "alice"),
+                1_763_650_101L,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new TelegramVoiceDto("voice-file", "voice-unique", "audio/ogg", 2_000L)
+            ),
+            null
+        );
+
+        when(syncCursorRepository.findById("telegram-updates")).thenReturn(Optional.empty());
+        when(telegramBotClient.fetchUpdates(0L)).thenReturn(List.of(videoUpdate, voiceUpdate));
+        when(telegramBotClient.downloadAttachment(
+            "video-file",
+            ConversationAttachmentKind.VIDEO,
+            "clip.mp4",
+            "video/mp4",
+            5_000L
+        )).thenReturn(new ConversationAttachmentDraft(
+            ConversationAttachmentKind.VIDEO,
+            "clip.mp4",
+            "video/mp4",
+            5_000L,
+            new byte[] {1, 2, 3}
+        ));
+        when(telegramBotClient.downloadAttachment(
+            "voice-file",
+            ConversationAttachmentKind.VOICE,
+            "telegram-voice-701.ogg",
+            "audio/ogg",
+            2_000L
+        )).thenReturn(new ConversationAttachmentDraft(
+            ConversationAttachmentKind.VOICE,
+            "telegram-voice-701.ogg",
+            "audio/ogg",
+            2_000L,
+            new byte[] {4, 5, 6}
+        ));
+
+        telegramPollingService.poll();
+
+        ArgumentCaptor<com.vladislav.tgclone.bridge.TelegramInboundEnvelope> envelopeCaptor =
+            ArgumentCaptor.forClass(com.vladislav.tgclone.bridge.TelegramInboundEnvelope.class);
+        verify(messageRelayService, org.mockito.Mockito.times(2)).processTelegramInbound(envelopeCaptor.capture());
+        List<com.vladislav.tgclone.bridge.TelegramInboundEnvelope> envelopes = envelopeCaptor.getAllValues();
+
+        org.junit.jupiter.api.Assertions.assertEquals(ConversationAttachmentKind.VIDEO, envelopes.get(0).attachments().getFirst().kind());
+        org.junit.jupiter.api.Assertions.assertEquals("video caption", envelopes.get(0).body());
+        org.junit.jupiter.api.Assertions.assertEquals(ConversationAttachmentKind.VOICE, envelopes.get(1).attachments().getFirst().kind());
+        org.junit.jupiter.api.Assertions.assertEquals("", envelopes.get(1).body());
+    }
+
     private TelegramMessageDto telegramMessage(
         Long messageId,
         TelegramChatDto chat,
@@ -215,6 +295,6 @@ class TelegramPollingServiceTest {
         Long date,
         String text
     ) {
-        return new TelegramMessageDto(messageId, chat, from, date, text, null, null, null);
+        return new TelegramMessageDto(messageId, chat, from, date, text, null, null, null, null, null);
     }
 }

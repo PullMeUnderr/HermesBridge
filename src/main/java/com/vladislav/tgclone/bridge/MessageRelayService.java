@@ -85,7 +85,8 @@ public class MessageRelayService {
             envelope.authorId(),
             envelope.authorDisplayName(),
             envelope.body(),
-            envelope.createdAt()
+            envelope.createdAt(),
+            envelope.attachments()
         );
 
         conversationEventPublisher.publish(savedMessage);

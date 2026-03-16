@@ -5,8 +5,10 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,7 +17,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import com.vladislav.tgclone.security.AuthenticatedUser;
 
 @RestController
@@ -82,6 +86,27 @@ public class ConversationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ConversationMessageResponse.from(message));
     }
 
+    @PostMapping(
+        path = "/{conversationId}/messages/upload",
+        consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ResponseEntity<ConversationMessageResponse> uploadMessage(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+        @PathVariable Long conversationId,
+        @RequestParam(required = false) String body,
+        @RequestParam(name = "files", required = false) List<MultipartFile> files
+    ) {
+        List<ConversationAttachmentDraft> attachments = toAttachmentDrafts(files);
+        ConversationMessage message = conversationService.createInternalMessage(
+            authenticatedUser,
+            conversationId,
+            body,
+            attachments
+        );
+        messageRelayService.relayInternalMessage(message);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ConversationMessageResponse.from(message));
+    }
+
     @GetMapping("/{conversationId}/members")
     public List<ConversationMemberResponse> listMembers(
         @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
@@ -115,6 +140,40 @@ public class ConversationController {
             request.role()
         );
         return ConversationMemberResponse.from(member);
+    }
+
+    private List<ConversationAttachmentDraft> toAttachmentDrafts(List<MultipartFile> files) {
+        List<ConversationAttachmentDraft> drafts = new ArrayList<>();
+        if (files == null || files.isEmpty()) {
+            return drafts;
+        }
+
+        for (MultipartFile file : files) {
+            if (file == null || file.isEmpty()) {
+                continue;
+            }
+
+            try {
+                drafts.add(new ConversationAttachmentDraft(
+                    detectAttachmentKind(file.getContentType()),
+                    file.getOriginalFilename(),
+                    file.getContentType(),
+                    file.getSize(),
+                    file.getBytes()
+                ));
+            } catch (Exception ex) {
+                throw new IllegalArgumentException("Failed to read uploaded attachment");
+            }
+        }
+
+        return drafts;
+    }
+
+    private ConversationAttachmentKind detectAttachmentKind(String contentType) {
+        if (contentType != null && contentType.startsWith("image/")) {
+            return ConversationAttachmentKind.PHOTO;
+        }
+        return ConversationAttachmentKind.DOCUMENT;
     }
 }
 
@@ -164,6 +223,7 @@ record ConversationMessageResponse(
     String authorExternalId,
     String authorDisplayName,
     String body,
+    List<ConversationAttachmentResponse> attachments,
     Instant createdAt
 ) {
 
@@ -176,7 +236,36 @@ record ConversationMessageResponse(
             message.getAuthorExternalId(),
             message.getAuthorDisplayName(),
             message.getBody(),
+            message.getAttachments().stream()
+                .map(ConversationAttachmentResponse::from)
+                .toList(),
             message.getCreatedAt()
+        );
+    }
+}
+
+record ConversationAttachmentResponse(
+    Long id,
+    String kind,
+    String fileName,
+    String mimeType,
+    long sizeBytes,
+    String contentUrl,
+    String cacheKey
+) {
+
+    static ConversationAttachmentResponse from(ConversationAttachment attachment) {
+        String version = attachment.getCreatedAt() == null
+            ? String.valueOf(attachment.getId())
+            : String.valueOf(attachment.getCreatedAt().toEpochMilli());
+        return new ConversationAttachmentResponse(
+            attachment.getId(),
+            attachment.getKind().name(),
+            attachment.getOriginalFilename(),
+            attachment.getMimeType(),
+            attachment.getSizeBytes(),
+            "/api/attachments/" + attachment.getId() + "/content?v=" + version,
+            version
         );
     }
 }

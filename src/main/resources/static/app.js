@@ -7,6 +7,9 @@ const state = {
   currentMembers: [],
   pollHandle: null,
   lastSyncAt: null,
+  sidebarDrawerMode: null,
+  attachmentObjectUrls: new Map(),
+  messageSubmitInFlight: false,
 };
 
 const elements = {
@@ -16,6 +19,14 @@ const elements = {
   tokenInput: document.getElementById("tokenInput"),
   userCard: document.getElementById("userCard"),
   logoutButton: document.getElementById("logoutButton"),
+  openCreateDrawerButton: document.getElementById("openCreateDrawerButton"),
+  openJoinDrawerButton: document.getElementById("openJoinDrawerButton"),
+  sidebarDrawer: document.getElementById("sidebarDrawer"),
+  drawerEyebrow: document.getElementById("drawerEyebrow"),
+  drawerTitle: document.getElementById("drawerTitle"),
+  drawerCreateView: document.getElementById("drawerCreateView"),
+  drawerJoinView: document.getElementById("drawerJoinView"),
+  closeDrawerButton: document.getElementById("closeDrawerButton"),
   createChatForm: document.getElementById("createChatForm"),
   newChatTitle: document.getElementById("newChatTitle"),
   joinInviteForm: document.getElementById("joinInviteForm"),
@@ -38,6 +49,9 @@ const elements = {
   membersList: document.getElementById("membersList"),
   messageForm: document.getElementById("messageForm"),
   messageInput: document.getElementById("messageInput"),
+  messageAttachmentsInput: document.getElementById("messageAttachmentsInput"),
+  attachmentSelectionLabel: document.getElementById("attachmentSelectionLabel"),
+  sendMessageButton: document.getElementById("sendMessageButton"),
   toast: document.getElementById("toast"),
 };
 
@@ -64,8 +78,23 @@ elements.logoutButton.addEventListener("click", () => {
   state.currentMessages = [];
   state.currentMembers = [];
   state.lastSyncAt = null;
+  state.sidebarDrawerMode = null;
+  state.messageSubmitInFlight = false;
+  resetAttachmentObjectUrls();
   stopPolling();
   render();
+});
+
+elements.openCreateDrawerButton.addEventListener("click", () => {
+  toggleDrawer("create");
+});
+
+elements.openJoinDrawerButton.addEventListener("click", () => {
+  toggleDrawer("join");
+});
+
+elements.closeDrawerButton.addEventListener("click", () => {
+  closeDrawer();
 });
 
 elements.createChatForm.addEventListener("submit", async (event) => {
@@ -82,6 +111,7 @@ elements.createChatForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({ title }),
     });
     elements.newChatTitle.value = "";
+    closeDrawer();
     await loadConversations();
     selectConversation(created.id);
     showToast(`Чат "${created.title}" создан.`, "success");
@@ -103,6 +133,7 @@ elements.joinInviteForm.addEventListener("submit", async (event) => {
       method: "POST",
     });
     elements.inviteCodeInput.value = "";
+    closeDrawer();
     await loadConversations();
     selectConversation(joined.conversationId);
     showToast(`Вошел в чат "${joined.conversationTitle}".`, "success");
@@ -141,27 +172,66 @@ elements.createInviteButton.addEventListener("click", async () => {
   }
 });
 
+elements.messageAttachmentsInput.addEventListener("change", () => {
+  renderSelectedAttachments();
+});
+
 elements.messageForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!state.selectedConversationId) {
+  if (!state.selectedConversationId || state.messageSubmitInFlight) {
     return;
   }
 
   const body = elements.messageInput.value.trim();
-  if (!body) {
+  const files = Array.from(elements.messageAttachmentsInput.files || []);
+  if (!body && files.length === 0) {
     return;
   }
 
+  state.messageSubmitInFlight = true;
+  renderComposerState();
+
+  if (files.length > 0) {
+    elements.messageAttachmentsInput.value = "";
+    renderSelectedAttachments();
+  }
+
   try {
-    await api(`/api/conversations/${state.selectedConversationId}/messages`, {
-      method: "POST",
-      body: JSON.stringify({ body }),
-    });
-    elements.messageInput.value = "";
+    if (files.length > 0) {
+      const formData = new FormData();
+      if (body) {
+        formData.append("body", body);
+      }
+      files.forEach((file) => formData.append("files", file));
+
+      await api(`/api/conversations/${state.selectedConversationId}/messages/upload`, {
+        method: "POST",
+        body: formData,
+      });
+    } else {
+      await api(`/api/conversations/${state.selectedConversationId}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      });
+    }
+
+    resetComposer();
     await loadMessages(state.selectedConversationId);
   } catch (error) {
     showToast(error.message, "error");
+  } finally {
+    state.messageSubmitInFlight = false;
+    renderComposerState();
   }
+});
+
+elements.messageInput.addEventListener("keydown", async (event) => {
+  if (event.key !== "Enter" || event.shiftKey) {
+    return;
+  }
+
+  event.preventDefault();
+  elements.messageForm.requestSubmit();
 });
 
 async function bootstrapSession() {
@@ -208,6 +278,7 @@ async function loadMessages(conversationId) {
     return;
   }
 
+  resetAttachmentObjectUrls();
   state.currentMessages = messages;
   state.currentMembers = members;
   touchSync();
@@ -250,14 +321,20 @@ function render() {
   }
 
   elements.userCard.innerHTML = `
-    <strong class="user-name">${escapeHtml(state.me.displayName)}</strong>
-    <span class="muted">@${escapeHtml(state.me.username)}</span><br>
-    <span class="muted">Tenant: ${escapeHtml(state.me.tenantKey)}</span><br>
-    <span class="muted">Telegram: ${state.me.telegramLinked ? "подключен" : "не подключен"}</span>
+    <div class="user-shell">
+      <div class="user-avatar">${escapeHtml(getInitials(state.me.displayName || state.me.username))}</div>
+      <div class="user-meta">
+        <strong class="user-name">${escapeHtml(state.me.displayName)}</strong>
+        <span class="muted">@${escapeHtml(state.me.username)}</span>
+        <span class="muted">Tenant: ${escapeHtml(state.me.tenantKey)}</span>
+      </div>
+    </div>
+    <div class="user-bridge">${state.me.telegramLinked ? "Telegram connected" : "Telegram not linked"}</div>
   `;
   renderConversationList();
   renderConversationHeader();
   renderWorkspaceHeader();
+  renderDrawer();
 }
 
 function renderConversationList() {
@@ -281,11 +358,14 @@ function renderConversationList() {
       const active = conversation.id === state.selectedConversationId ? "active" : "";
       return `
         <button class="conversation-item ${active}" data-conversation-id="${conversation.id}">
-          <span class="conversation-kicker">Chat #${conversation.id}</span>
-          <span class="title">${escapeHtml(conversation.title)}</span>
-          <span class="conversation-footer">
-            <span class="mini-pill">${escapeHtml(conversation.membershipRole)}</span>
-            <span class="meta">${conversation.createdAt ? escapeHtml(formatTimestamp(conversation.createdAt)) : "Готов к синку"}</span>
+          <span class="conversation-avatar">${escapeHtml(getInitials(conversation.title))}</span>
+          <span class="conversation-copy">
+            <span class="conversation-kicker">Chat #${conversation.id}</span>
+            <span class="title">${escapeHtml(conversation.title)}</span>
+            <span class="conversation-footer">
+              <span class="mini-pill">${escapeHtml(conversation.membershipRole)}</span>
+              <span class="meta">${conversation.createdAt ? escapeHtml(formatTimestamp(conversation.createdAt)) : "Готов к синку"}</span>
+            </span>
           </span>
         </button>
       `;
@@ -297,6 +377,48 @@ function renderConversationList() {
       selectConversation(Number(button.dataset.conversationId));
     });
   });
+}
+
+function toggleDrawer(mode) {
+  state.sidebarDrawerMode = state.sidebarDrawerMode === mode ? null : mode;
+  renderDrawer();
+
+  if (state.sidebarDrawerMode === "create") {
+    window.setTimeout(() => elements.newChatTitle.focus(), 180);
+  }
+
+  if (state.sidebarDrawerMode === "join") {
+    window.setTimeout(() => elements.inviteCodeInput.focus(), 180);
+  }
+}
+
+function closeDrawer() {
+  state.sidebarDrawerMode = null;
+  renderDrawer();
+}
+
+function renderDrawer() {
+  const isCreate = state.sidebarDrawerMode === "create";
+  const isJoin = state.sidebarDrawerMode === "join";
+  const isOpen = isCreate || isJoin;
+
+  elements.sidebarDrawer.dataset.open = String(isOpen);
+  elements.sidebarDrawer.setAttribute("aria-hidden", String(!isOpen));
+  elements.drawerCreateView.classList.toggle("hidden", !isCreate);
+  elements.drawerJoinView.classList.toggle("hidden", !isJoin);
+  elements.openCreateDrawerButton.classList.toggle("active", isCreate);
+  elements.openJoinDrawerButton.classList.toggle("active", isJoin);
+
+  if (isCreate) {
+    elements.drawerEyebrow.textContent = "Новый чат";
+    elements.drawerTitle.textContent = "Создать пространство";
+  } else if (isJoin) {
+    elements.drawerEyebrow.textContent = "Invite flow";
+    elements.drawerTitle.textContent = "Войти по коду";
+  } else {
+    elements.drawerEyebrow.textContent = "Панель действий";
+    elements.drawerTitle.textContent = "Выбери действие";
+  }
 }
 
 function renderWorkspaceHeader() {
@@ -337,6 +459,7 @@ function renderConversationHeader() {
   elements.conversationView.classList.toggle("hidden", !hasSelection);
   elements.createInviteButton.disabled = !hasSelection;
   elements.refreshMessagesButton.disabled = !hasSelection;
+  renderComposerState();
 
   if (!hasSelection) {
     elements.messagesList.innerHTML = "";
@@ -366,18 +489,24 @@ function renderMessages() {
       const author = message.authorDisplayName || "Unknown";
       const transport = message.sourceTransport === "INTERNAL" ? "Hermes" : message.sourceTransport;
       return `
-        <article class="message-card ${mine ? "mine" : ""}">
-          <div class="message-topline">
-            <div class="message-author">${escapeHtml(author)}</div>
-            <div class="transport-pill">${escapeHtml(transport)}</div>
-          </div>
-          <div class="message-body">${escapeHtml(message.body)}</div>
-          <div class="message-meta">${formatTimestamp(message.createdAt)}</div>
-        </article>
+        <div class="message-row ${mine ? "mine" : ""}">
+          <div class="message-avatar">${escapeHtml(getInitials(author))}</div>
+          <article class="message-card ${mine ? "mine" : ""}">
+            <div class="message-topline">
+              <div class="message-author">${escapeHtml(author)}</div>
+              <div class="transport-pill">${escapeHtml(transport)}</div>
+            </div>
+            ${renderMessageAttachments(message.attachments || [])}
+            ${renderMessageBody(message.body)}
+            <div class="message-meta">${formatTimestamp(message.createdAt)}</div>
+          </article>
+        </div>
       `;
     })
     .join("");
 
+  bindAttachmentActions();
+  hydrateAttachmentPreviews();
   elements.messagesList.scrollTop = elements.messagesList.scrollHeight;
 }
 
@@ -396,9 +525,14 @@ function renderMembers(members) {
     .map(
       (member) => `
         <article class="member-card">
-          <strong>${escapeHtml(member.displayName)}</strong><br>
-          <span class="muted">@${escapeHtml(member.username)}</span><br>
-          <span class="member-role">${escapeHtml(member.role)}</span>
+          <div class="member-shell">
+            <div class="member-avatar">${escapeHtml(getInitials(member.displayName || member.username))}</div>
+            <div>
+              <strong class="member-name">${escapeHtml(member.displayName)}</strong>
+              <span class="muted">@${escapeHtml(member.username)}</span><br>
+              <span class="member-role">${escapeHtml(member.role)}</span>
+            </div>
+          </div>
         </article>
       `
     )
@@ -438,9 +572,10 @@ async function guardedAction(action) {
 }
 
 async function api(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
   const headers = {
-    "Content-Type": "application/json",
     Authorization: `Bearer ${state.token}`,
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers || {}),
   };
 
@@ -472,6 +607,175 @@ async function api(path, options = {}) {
   }
 
   return response.json();
+}
+
+function renderMessageBody(body) {
+  if (!body) {
+    return "";
+  }
+
+  return `<div class="message-body">${escapeHtml(body)}</div>`;
+}
+
+function renderMessageAttachments(attachments) {
+  if (!attachments || attachments.length === 0) {
+    return "";
+  }
+
+  return `
+    <div class="message-attachments">
+      ${attachments.map(renderAttachmentCard).join("")}
+    </div>
+  `;
+}
+
+function renderAttachmentCard(attachment) {
+  if (attachment.kind === "PHOTO") {
+    return `
+      <figure class="attachment-card attachment-card-photo">
+        <img
+          class="attachment-image hidden"
+          data-attachment-preview-id="${attachment.id}"
+          data-content-url="${escapeHtml(attachment.contentUrl)}"
+          alt="${escapeHtml(attachment.fileName)}"
+        >
+        <figcaption class="attachment-caption">
+          <span>${escapeHtml(attachment.fileName)}</span>
+          <button
+            class="attachment-link"
+            type="button"
+            data-download-attachment-id="${attachment.id}"
+            data-file-name="${escapeHtml(attachment.fileName)}"
+            data-content-url="${escapeHtml(attachment.contentUrl)}"
+          >
+            Скачать
+          </button>
+        </figcaption>
+      </figure>
+    `;
+  }
+
+  return `
+    <div class="attachment-card attachment-card-document">
+      <div>
+        <strong>${escapeHtml(attachment.fileName)}</strong>
+        <div class="muted">${formatBytes(attachment.sizeBytes)} · ${escapeHtml(attachment.mimeType || "document")}</div>
+      </div>
+      <button
+        class="attachment-link"
+        type="button"
+        data-download-attachment-id="${attachment.id}"
+        data-file-name="${escapeHtml(attachment.fileName)}"
+        data-content-url="${escapeHtml(attachment.contentUrl)}"
+      >
+        Скачать
+      </button>
+    </div>
+  `;
+}
+
+function bindAttachmentActions() {
+  elements.messagesList.querySelectorAll("[data-download-attachment-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await downloadAttachment(button.dataset.contentUrl, button.dataset.fileName);
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    });
+  });
+}
+
+async function hydrateAttachmentPreviews() {
+  const images = Array.from(elements.messagesList.querySelectorAll("[data-attachment-preview-id]"));
+  await Promise.all(
+    images.map(async (image) => {
+      try {
+        const objectUrl = await ensureAttachmentObjectUrl(
+          image.dataset.attachmentPreviewId,
+          image.dataset.contentUrl
+        );
+        image.src = objectUrl;
+        image.classList.remove("hidden");
+      } catch (error) {
+        image.remove();
+      }
+    })
+  );
+}
+
+async function ensureAttachmentObjectUrl(attachmentId, contentUrl) {
+  const cacheKey = `${attachmentId}:${contentUrl}`;
+  if (state.attachmentObjectUrls.has(cacheKey)) {
+    return state.attachmentObjectUrls.get(cacheKey);
+  }
+
+  const response = await fetch(contentUrl, {
+    headers: {
+      Authorization: `Bearer ${state.token}`,
+    },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Не удалось загрузить вложение (${response.status})`);
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  state.attachmentObjectUrls.set(cacheKey, objectUrl);
+  return objectUrl;
+}
+
+async function downloadAttachment(contentUrl, fileName) {
+  const response = await fetch(contentUrl, {
+    headers: {
+      Authorization: `Bearer ${state.token}`,
+    },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Не удалось скачать вложение (${response.status})`);
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName || "attachment";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 500);
+}
+
+function renderSelectedAttachments() {
+  const files = Array.from(elements.messageAttachmentsInput.files || []);
+  if (files.length === 0) {
+    elements.attachmentSelectionLabel.textContent = "Без вложений";
+    return;
+  }
+
+  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+  elements.attachmentSelectionLabel.textContent = `${files.length} файл(ов) · ${formatBytes(totalSize)}`;
+}
+
+function resetComposer() {
+  elements.messageInput.value = "";
+  elements.messageAttachmentsInput.value = "";
+  renderSelectedAttachments();
+}
+
+function renderComposerState() {
+  const disabled = !state.selectedConversationId || state.messageSubmitInFlight;
+  elements.messageInput.disabled = disabled;
+  elements.messageAttachmentsInput.disabled = disabled;
+  elements.sendMessageButton.disabled = disabled;
+  elements.sendMessageButton.textContent = state.messageSubmitInFlight ? "Отправляем..." : "Отправить";
+}
+
+function resetAttachmentObjectUrls() {
+  state.attachmentObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  state.attachmentObjectUrls.clear();
 }
 
 function showToast(message, kind = "success", duration = 4200) {
@@ -507,6 +811,22 @@ function formatClock(value) {
   }
 }
 
+function formatBytes(value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -516,7 +836,25 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function getInitials(value) {
+  const words = String(value ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return "H";
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
 render();
+renderSelectedAttachments();
 if (state.token) {
   bootstrapSession();
 }

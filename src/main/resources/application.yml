@@ -38,6 +38,9 @@ app:
     api-token-ttl-days: ${APP_API_TOKEN_TTL_DAYS:365}
   conversations:
     invite-ttl-hours: ${APP_CONVERSATIONS_INVITE_TTL_HOURS:168}
+  media:
+    storage-root: ${APP_MEDIA_STORAGE_ROOT:./data/media}
+    max-file-size-bytes: ${APP_MEDIA_MAX_FILE_SIZE_BYTES:20971520}
 
 management:
   endpoints:

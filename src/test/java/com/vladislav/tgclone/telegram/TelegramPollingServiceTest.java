@@ -86,7 +86,7 @@ class TelegramPollingServiceTest {
 
         TelegramUpdateDto update = new TelegramUpdateDto(
             101L,
-            new TelegramMessageDto(
+            telegramMessage(
                 501L,
                 new TelegramChatDto(-100123L, "Hermes group", "supergroup"),
                 new TelegramUserDto(42L, "Alice", null, "alice"),
@@ -125,7 +125,7 @@ class TelegramPollingServiceTest {
 
         TelegramUpdateDto buttonUpdate = new TelegramUpdateDto(
             101L,
-            new TelegramMessageDto(
+            telegramMessage(
                 501L,
                 new TelegramChatDto(100500L, null, "private"),
                 new TelegramUserDto(42L, "Alice", null, "alice"),
@@ -136,7 +136,7 @@ class TelegramPollingServiceTest {
         );
         TelegramUpdateDto titleUpdate = new TelegramUpdateDto(
             102L,
-            new TelegramMessageDto(
+            telegramMessage(
                 502L,
                 new TelegramChatDto(100500L, null, "private"),
                 new TelegramUserDto(42L, "Alice", null, "alice"),
@@ -175,7 +175,7 @@ class TelegramPollingServiceTest {
 
         TelegramUpdateDto buttonUpdate = new TelegramUpdateDto(
             101L,
-            new TelegramMessageDto(
+            telegramMessage(
                 501L,
                 new TelegramChatDto(100500L, null, "private"),
                 new TelegramUserDto(42L, "Alice", null, "alice"),
@@ -186,7 +186,7 @@ class TelegramPollingServiceTest {
         );
         TelegramUpdateDto codeUpdate = new TelegramUpdateDto(
             102L,
-            new TelegramMessageDto(
+            telegramMessage(
                 502L,
                 new TelegramChatDto(100500L, null, "private"),
                 new TelegramUserDto(42L, "Alice", null, "alice"),
@@ -206,5 +206,15 @@ class TelegramPollingServiceTest {
 
         verify(telegramBotClient).sendMessage(eq("100500"), contains("Пришли invite-код"), any());
         verify(telegramBotClient).sendMessage(eq("100500"), contains("Готово, ты вступил в чат."), any());
+    }
+
+    private TelegramMessageDto telegramMessage(
+        Long messageId,
+        TelegramChatDto chat,
+        TelegramUserDto from,
+        Long date,
+        String text
+    ) {
+        return new TelegramMessageDto(messageId, chat, from, date, text, null, null, null);
     }
 }

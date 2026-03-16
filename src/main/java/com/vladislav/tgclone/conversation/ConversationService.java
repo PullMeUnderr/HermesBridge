@@ -23,6 +23,7 @@ public class ConversationService {
     private final ConversationMessageRepository conversationMessageRepository;
     private final ConversationMemberRepository conversationMemberRepository;
     private final ConversationInviteRepository conversationInviteRepository;
+    private final ConversationAttachmentService conversationAttachmentService;
     private final UserAccountService userAccountService;
     private final ConversationProperties conversationProperties;
     private final TokenHasher tokenHasher;
@@ -34,6 +35,7 @@ public class ConversationService {
         ConversationMessageRepository conversationMessageRepository,
         ConversationMemberRepository conversationMemberRepository,
         ConversationInviteRepository conversationInviteRepository,
+        ConversationAttachmentService conversationAttachmentService,
         UserAccountService userAccountService,
         ConversationProperties conversationProperties,
         TokenHasher tokenHasher,
@@ -43,6 +45,7 @@ public class ConversationService {
         this.conversationMessageRepository = conversationMessageRepository;
         this.conversationMemberRepository = conversationMemberRepository;
         this.conversationInviteRepository = conversationInviteRepository;
+        this.conversationAttachmentService = conversationAttachmentService;
         this.userAccountService = userAccountService;
         this.conversationProperties = conversationProperties;
         this.tokenHasher = tokenHasher;
@@ -134,9 +137,19 @@ public class ConversationService {
         Long conversationId,
         String body
     ) {
+        return createInternalMessage(authenticatedUser, conversationId, body, List.of());
+    }
+
+    @Transactional
+    public ConversationMessage createInternalMessage(
+        AuthenticatedUser authenticatedUser,
+        Long conversationId,
+        String body,
+        List<ConversationAttachmentDraft> attachments
+    ) {
         Conversation conversation = requireMembership(authenticatedUser, conversationId).getConversation();
         UserAccount author = userAccountService.requireActiveUser(authenticatedUser.userId());
-        String normalizedBody = normalizeBody(body);
+        String normalizedBody = normalizeBody(body, attachments);
         ConversationMessage message = new ConversationMessage(
             conversation,
             BridgeTransport.INTERNAL,
@@ -148,7 +161,9 @@ public class ConversationService {
             normalizedBody,
             clock.instant()
         );
-        return conversationMessageRepository.save(message);
+        ConversationMessage savedMessage = conversationMessageRepository.save(message);
+        conversationAttachmentService.storeDrafts(savedMessage, attachments);
+        return savedMessage;
     }
 
     @Transactional
@@ -161,7 +176,8 @@ public class ConversationService {
         String authorId,
         String authorName,
         String body,
-        java.time.Instant createdAt
+        java.time.Instant createdAt,
+        List<ConversationAttachmentDraft> attachments
     ) {
         Conversation conversation = getConversation(conversationId);
         ConversationMessage message = new ConversationMessage(
@@ -172,10 +188,12 @@ public class ConversationService {
             authorUser,
             normalizeNullable(authorId),
             normalizeAuthorName(authorName),
-            normalizeBody(body),
+            normalizeBody(body, attachments),
             createdAt == null ? clock.instant() : createdAt
         );
-        return conversationMessageRepository.save(message);
+        ConversationMessage savedMessage = conversationMessageRepository.save(message);
+        conversationAttachmentService.storeDrafts(savedMessage, attachments);
+        return savedMessage;
     }
 
     @Transactional(readOnly = true)
@@ -286,8 +304,11 @@ public class ConversationService {
         return value.trim();
     }
 
-    private String normalizeBody(String value) {
+    private String normalizeBody(String value, List<ConversationAttachmentDraft> attachments) {
         if (value == null || value.isBlank()) {
+            if (attachments != null && !attachments.isEmpty()) {
+                return "";
+            }
             throw new IllegalArgumentException("body is required");
         }
         return value.trim();

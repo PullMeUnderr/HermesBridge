@@ -3,17 +3,21 @@ package com.vladislav.tgclone.conversation;
 import com.vladislav.tgclone.account.UserAccount;
 import com.vladislav.tgclone.bridge.BridgeTransport;
 import jakarta.persistence.Column;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 @Entity
 @Table(name = "conversation_messages")
@@ -52,6 +56,9 @@ public class ConversationMessage {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    @OneToMany(mappedBy = "message", fetch = FetchType.EAGER)
+    private List<ConversationAttachment> attachments = new ArrayList<>();
 
     protected ConversationMessage() {
     }
@@ -116,5 +123,13 @@ public class ConversationMessage {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public List<ConversationAttachment> getAttachments() {
+        return Collections.unmodifiableList(attachments);
+    }
+
+    void addAttachment(ConversationAttachment attachment) {
+        this.attachments.add(attachment);
     }
 }

@@ -41,6 +41,9 @@ class ConversationServiceTest {
     private ConversationInviteRepository conversationInviteRepository;
 
     @Mock
+    private ConversationAttachmentService conversationAttachmentService;
+
+    @Mock
     private UserAccountService userAccountService;
 
     private ConversationService conversationService;
@@ -52,6 +55,7 @@ class ConversationServiceTest {
             conversationMessageRepository,
             conversationMemberRepository,
             conversationInviteRepository,
+            conversationAttachmentService,
             userAccountService,
             new ConversationProperties(168),
             new TokenHasher(),

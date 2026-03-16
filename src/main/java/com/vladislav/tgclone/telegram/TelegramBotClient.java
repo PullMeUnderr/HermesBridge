@@ -3,6 +3,19 @@ package com.vladislav.tgclone.telegram;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vladislav.tgclone.conversation.ConversationAttachmentDraft;
+import com.vladislav.tgclone.conversation.ConversationAttachmentKind;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.net.URLConnection;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -15,17 +28,26 @@ import org.springframework.web.client.RestClient;
 public class TelegramBotClient {
 
     private final TelegramProperties telegramProperties;
-    private final RestClient restClient;
+    private final RestClient botRestClient;
+    private final RestClient fileRestClient;
+    private final HttpClient httpClient;
+    private final ObjectMapper objectMapper;
 
     public TelegramBotClient(RestClient.Builder restClientBuilder, TelegramProperties telegramProperties) {
         this.telegramProperties = telegramProperties;
-        String baseUrl = "https://api.telegram.org/bot" + telegramProperties.botToken();
-        this.restClient = restClientBuilder.baseUrl(baseUrl).build();
+        this.botRestClient = restClientBuilder
+            .baseUrl("https://api.telegram.org/bot" + telegramProperties.botToken())
+            .build();
+        this.fileRestClient = restClientBuilder
+            .baseUrl("https://api.telegram.org/file/bot" + telegramProperties.botToken())
+            .build();
+        this.httpClient = HttpClient.newHttpClient();
+        this.objectMapper = new ObjectMapper();
     }
 
     public List<TelegramUpdateDto> fetchUpdates(long offset) {
         ensureConfigured();
-        TelegramApiResponse<List<TelegramUpdateDto>> response = restClient.post()
+        TelegramApiResponse<List<TelegramUpdateDto>> response = botRestClient.post()
             .uri("/getUpdates")
             .contentType(MediaType.APPLICATION_JSON)
             .body(new GetUpdatesRequest(offset, telegramProperties.pollTimeoutSeconds(), List.of("message", "callback_query")))
@@ -42,7 +64,7 @@ public class TelegramBotClient {
 
     public String sendMessage(String chatId, String text, Map<String, Object> replyMarkup) {
         ensureConfigured();
-        TelegramApiResponse<TelegramMessageDto> response = restClient.post()
+        TelegramApiResponse<TelegramMessageDto> response = botRestClient.post()
             .uri("/sendMessage")
             .contentType(MediaType.APPLICATION_JSON)
             .body(new SendMessageRequest(chatId, text, replyMarkup))
@@ -61,7 +83,7 @@ public class TelegramBotClient {
         }
 
         try {
-            restClient.post()
+            botRestClient.post()
                 .uri("/answerCallbackQuery")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new AnswerCallbackQueryRequest(callbackQueryId))
@@ -73,9 +95,95 @@ public class TelegramBotClient {
         }
     }
 
+    public String sendPhoto(String chatId, Path path, String caption) {
+        return sendMultipartMedia("/sendPhoto", "photo", chatId, path, caption);
+    }
+
+    public String sendDocument(String chatId, Path path, String caption) {
+        return sendMultipartMedia("/sendDocument", "document", chatId, path, caption);
+    }
+
+    public ConversationAttachmentDraft downloadAttachment(
+        String fileId,
+        ConversationAttachmentKind kind,
+        String originalFilename,
+        String mimeType,
+        Long sizeBytes
+    ) {
+        ensureConfigured();
+        if (fileId == null || fileId.isBlank()) {
+            throw new IllegalArgumentException("Telegram fileId is required");
+        }
+
+        TelegramApiResponse<TelegramFileResultDto> response = botRestClient.post()
+            .uri("/getFile")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(Map.of("file_id", fileId))
+            .retrieve()
+            .body(new ParameterizedTypeReference<>() {
+            });
+
+        TelegramFileResultDto fileResult = unwrap(response);
+        if (fileResult == null || fileResult.filePath() == null || fileResult.filePath().isBlank()) {
+            throw new IllegalStateException("Telegram did not return file_path");
+        }
+
+        byte[] content = fileRestClient.get()
+            .uri("/" + fileResult.filePath())
+            .retrieve()
+            .body(byte[].class);
+
+        String resolvedName = resolveFilename(originalFilename, fileResult.filePath(), kind);
+        String resolvedMimeType = resolveMimeType(mimeType, resolvedName, kind);
+        long resolvedSizeBytes = sizeBytes != null && sizeBytes > 0
+            ? sizeBytes
+            : content == null ? 0 : content.length;
+
+        return new ConversationAttachmentDraft(
+            kind,
+            resolvedName,
+            resolvedMimeType,
+            resolvedSizeBytes,
+            content == null ? new byte[0] : content
+        );
+    }
+
     private void ensureConfigured() {
         if (telegramProperties.botToken() == null || telegramProperties.botToken().isBlank()) {
             throw new IllegalStateException("TELEGRAM_BOT_TOKEN is not configured");
+        }
+    }
+
+    private String sendMultipartMedia(String endpoint, String partName, String chatId, Path path, String caption) {
+        ensureConfigured();
+        try {
+            String fileName = path.getFileName() == null ? "attachment.bin" : path.getFileName().toString();
+            String contentType = URLConnection.guessContentTypeFromName(fileName);
+            if (contentType == null || contentType.isBlank()) {
+                contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
+            }
+
+            String boundary = "HermesBoundary" + System.nanoTime();
+            byte[] body = buildMultipartBody(boundary, partName, chatId, caption, path, fileName, contentType);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("https://api.telegram.org/bot" + telegramProperties.botToken() + endpoint))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            TelegramApiResponse<TelegramMessageDto> parsed = objectMapper.readValue(
+                response.body(),
+                objectMapper.getTypeFactory().constructParametricType(TelegramApiResponse.class, TelegramMessageDto.class)
+            );
+            TelegramMessageDto result = unwrap(parsed);
+            return result.messageId() == null ? "" : result.messageId().toString();
+        } catch (IOException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            throw new IllegalStateException("Telegram media upload failed", ex);
         }
     }
 
@@ -85,6 +193,81 @@ public class TelegramBotClient {
             throw new IllegalStateException("Telegram API request failed: " + description);
         }
         return response.result();
+    }
+
+    private String resolveFilename(String originalFilename, String filePath, ConversationAttachmentKind kind) {
+        if (originalFilename != null && !originalFilename.isBlank()) {
+            return originalFilename.trim();
+        }
+
+        Path path = Path.of(filePath);
+        Path fileName = path.getFileName();
+        if (fileName != null && !fileName.toString().isBlank()) {
+            return fileName.toString();
+        }
+
+        return switch (kind) {
+            case PHOTO -> "telegram-photo.jpg";
+            case DOCUMENT -> "telegram-document.bin";
+        };
+    }
+
+    private String resolveMimeType(String mimeType, String fileName, ConversationAttachmentKind kind) {
+        if (mimeType != null && !mimeType.isBlank()) {
+            return mimeType.trim();
+        }
+
+        String guessed = URLConnection.guessContentTypeFromName(fileName);
+        if (guessed != null && !guessed.isBlank()) {
+            return guessed;
+        }
+
+        return switch (kind) {
+            case PHOTO -> MediaType.IMAGE_JPEG_VALUE;
+            case DOCUMENT -> MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        };
+    }
+
+    private byte[] buildMultipartBody(
+        String boundary,
+        String partName,
+        String chatId,
+        String caption,
+        Path path,
+        String fileName,
+        String contentType
+    ) throws IOException {
+        byte[] fileContent = Files.readAllBytes(path);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        writeTextPart(outputStream, boundary, "chat_id", chatId);
+        if (caption != null && !caption.isBlank()) {
+            writeTextPart(outputStream, boundary, "caption", caption);
+        }
+
+        outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        outputStream.write(
+            ("Content-Disposition: form-data; name=\"" + partName + "\"; filename=\"" + escapeQuotes(fileName) + "\"\r\n")
+                .getBytes(StandardCharsets.UTF_8)
+        );
+        outputStream.write(("Content-Type: " + contentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        outputStream.write(fileContent);
+        outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+        outputStream.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        return outputStream.toByteArray();
+    }
+
+    private void writeTextPart(ByteArrayOutputStream outputStream, String boundary, String name, String value) throws IOException {
+        outputStream.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        outputStream.write(
+            ("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n").getBytes(StandardCharsets.UTF_8)
+        );
+        outputStream.write(value.getBytes(StandardCharsets.UTF_8));
+        outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String escapeQuotes(String value) {
+        return value.replace("\"", "\\\"");
     }
 }
 
@@ -138,12 +321,43 @@ record TelegramMessageDto(
     TelegramChatDto chat,
     TelegramUserDto from,
     Long date,
-    String text
+    String text,
+    String caption,
+    List<TelegramPhotoSizeDto> photo,
+    TelegramDocumentDto document
 ) {
 
     Instant sentAt() {
         return date == null ? Instant.now() : Instant.ofEpochSecond(date);
     }
+}
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+record TelegramPhotoSizeDto(
+    @JsonProperty("file_id")
+    String fileId,
+    @JsonProperty("file_unique_id")
+    String fileUniqueId,
+    Integer width,
+    Integer height,
+    @JsonProperty("file_size")
+    Long fileSize
+) {
+}
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+record TelegramDocumentDto(
+    @JsonProperty("file_id")
+    String fileId,
+    @JsonProperty("file_unique_id")
+    String fileUniqueId,
+    @JsonProperty("file_name")
+    String fileName,
+    @JsonProperty("mime_type")
+    String mimeType,
+    @JsonProperty("file_size")
+    Long fileSize
+) {
 }
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -188,5 +402,18 @@ record TelegramCallbackQueryDto(
     TelegramUserDto from,
     TelegramMessageDto message,
     String data
+) {
+}
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+record TelegramFileResultDto(
+    @JsonProperty("file_id")
+    String fileId,
+    @JsonProperty("file_unique_id")
+    String fileUniqueId,
+    @JsonProperty("file_path")
+    String filePath,
+    @JsonProperty("file_size")
+    Long fileSize
 ) {
 }

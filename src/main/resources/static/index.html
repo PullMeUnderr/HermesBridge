@@ -4,36 +4,83 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hermes Messenger</title>
-    <link rel="stylesheet" href="/app.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/app.css?v=20260317-media-2">
 </head>
 <body>
 <div class="page-shell">
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+    <div class="ambient ambient-three"></div>
+
     <section id="loginView" class="auth-layout">
-        <div class="hero-panel">
-            <div class="eyebrow">Hermes Bridge</div>
-            <h1>Своя связанная сеть общения, где Telegram только мост, а не единственная точка опоры.</h1>
-            <p class="lead">
-                Мы уже умеем создавать аккаунты, чаты, инвайты и синхронизировать группы Telegram. Этот экран
-                становится базовой контрольной палубой будущего Hermes.
-            </p>
+        <section class="hero-panel">
+            <div class="hero-copy">
+                <div class="eyebrow">Hermes Bridge</div>
+                <h1>Своя система общения, где Telegram работает как мост, а не как единственный дом.</h1>
+                <p class="lead">
+                    Hermes уже умеет регистрировать пользователей через бота, создавать чаты, выдавать инвайты
+                    и связывать комнаты с Telegram-группами. Этот интерфейс нужен, чтобы тестировать все это как
+                    настоящий продукт, а не как набор API вызовов.
+                </p>
+                <div class="hero-tags">
+                    <span class="hero-tag">Dark messenger</span>
+                    <span class="hero-tag">Bridge first</span>
+                    <span class="hero-tag">Liquid glass</span>
+                </div>
+            </div>
+
+            <div class="hero-preview">
+                <article class="device-card">
+                    <div class="device-header">
+                        <span class="device-dot"></span>
+                        <span class="device-dot"></span>
+                        <span class="device-dot"></span>
+                    </div>
+                    <div class="device-thread">
+                        <div class="device-bubble incoming">
+                            <strong>Hermes Sync</strong>
+                            <span>Сообщения из Telegram уже приходят в общий внутренний чат.</span>
+                        </div>
+                        <div class="device-bubble outgoing">
+                            <strong>You</strong>
+                            <span>Теперь доводим интерфейс до состояния, в котором им приятно реально пользоваться.</span>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="device-card compact-card">
+                    <div class="device-stat">
+                        <span>Bridge</span>
+                        <strong>Telegram connected</strong>
+                    </div>
+                    <div class="device-stat">
+                        <span>Access</span>
+                        <strong>Invite and roles</strong>
+                    </div>
+                </article>
+            </div>
+
             <div class="feature-grid">
                 <article class="feature-card">
                     <span class="feature-kicker">01</span>
-                    <h3>Bot-first onboarding</h3>
-                    <p>Пользователь заходит через бота, получает токен и сразу попадает в экосистему Hermes.</p>
+                    <h3>Регистрация через бота</h3>
+                    <p>Пользователь получает токен и попадает в Hermes без ручной возни с API.</p>
                 </article>
                 <article class="feature-card">
                     <span class="feature-kicker">02</span>
-                    <h3>Bridge для групп</h3>
-                    <p>Телеграм-группа привязывается к внутреннему чату и остается частью общей модели ролей и инвайтов.</p>
+                    <h3>Синхронизация чатов</h3>
+                    <p>Одна и та же комната живет в Hermes и в Telegram-группе как единый разговор.</p>
                 </article>
                 <article class="feature-card">
                     <span class="feature-kicker">03</span>
                     <h3>Основа для роста</h3>
-                    <p>Сейчас это тестовый клиент, но дизайн уже выстроен как панель управления самостоятельным мессенджером.</p>
+                    <p>Дальше на эту базу можно уже спокойно наслаивать медиа, поиск, права и полноценный UX.</p>
                 </article>
             </div>
-        </div>
+        </section>
 
         <section class="auth-card">
             <div class="eyebrow">Вход в клиент</div>
@@ -59,40 +106,49 @@
 
     <section id="appView" class="app-layout hidden">
         <aside class="sidebar">
-            <div class="brand-block">
-                <div class="brand-mark">
-                    <div class="brand-rune">H</div>
+            <section class="panel sidebar-top">
+                <div class="sidebar-head">
                     <div>
                         <div class="eyebrow">Hermes Bridge</div>
-                        <h2>Control Deck</h2>
+                        <h2>Messages</h2>
                     </div>
+                    <button id="logoutButton" class="ghost-button" type="button">Выйти</button>
                 </div>
                 <p class="muted">
                     Рабочая панель для живого теста Hermes: чаты, инвайты, участники и связка с Telegram.
                 </p>
                 <div id="userCard" class="user-card"></div>
-                <button id="logoutButton" class="ghost-button">Выйти</button>
-            </div>
+                <div class="sidebar-tool-row">
+                    <button id="openCreateDrawerButton" class="primary-button sidebar-tool-button" type="button">Создать чат</button>
+                    <button id="openJoinDrawerButton" class="secondary-button sidebar-tool-button" type="button">Войти по коду</button>
+                </div>
+            </section>
 
-            <div class="panel">
-                <div class="section-caption">Новый чат</div>
-                <h3>Создать пространство</h3>
-                <form id="createChatForm" class="stack">
-                    <input id="newChatTitle" type="text" placeholder="Название чата">
-                    <button type="submit" class="primary-button">Создать чат</button>
-                </form>
-            </div>
+            <section id="sidebarDrawer" class="panel sidebar-drawer" data-open="false" aria-hidden="true">
+                <div class="sidebar-drawer-head">
+                    <div>
+                        <div id="drawerEyebrow" class="section-caption">Новый чат</div>
+                        <h3 id="drawerTitle">Создать пространство</h3>
+                    </div>
+                    <button id="closeDrawerButton" class="icon-button" type="button" aria-label="Закрыть">×</button>
+                </div>
 
-            <div class="panel">
-                <div class="section-caption">Invite flow</div>
-                <h3>Войти по коду</h3>
-                <form id="joinInviteForm" class="stack">
-                    <input id="inviteCodeInput" type="text" placeholder="join_...">
-                    <button type="submit" class="secondary-button">Войти в чат</button>
-                </form>
-            </div>
+                <div id="drawerCreateView" class="drawer-view">
+                    <form id="createChatForm" class="stack">
+                        <input id="newChatTitle" type="text" placeholder="Название чата">
+                        <button type="submit" class="primary-button">Создать чат</button>
+                    </form>
+                </div>
 
-            <div class="panel grow">
+                <div id="drawerJoinView" class="drawer-view hidden">
+                    <form id="joinInviteForm" class="stack">
+                        <input id="inviteCodeInput" type="text" placeholder="join_...">
+                        <button type="submit" class="secondary-button">Войти в чат</button>
+                    </form>
+                </div>
+            </section>
+
+            <section class="panel grow">
                 <div class="panel-head">
                     <div>
                         <div class="section-caption">Навигация</div>
@@ -101,25 +157,7 @@
                     <button id="refreshChatsButton" class="icon-button" type="button" aria-label="Обновить">↻</button>
                 </div>
                 <div id="conversationList" class="conversation-list"></div>
-            </div>
-
-            <div class="panel compact-panel">
-                <div class="section-caption">Быстрый цикл</div>
-                <div class="quick-steps">
-                    <article class="step-card">
-                        <strong>1</strong>
-                        <span>Создай чат или привяжи группу через бота.</span>
-                    </article>
-                    <article class="step-card">
-                        <strong>2</strong>
-                        <span>Отправь invite и дай людям войти кнопкой <em>Вход</em>.</span>
-                    </article>
-                    <article class="step-card">
-                        <strong>3</strong>
-                        <span>Проверь диалог здесь и убедись, что bridge ходит в обе стороны.</span>
-                    </article>
-                </div>
-            </div>
+            </section>
         </aside>
 
         <main class="workspace">
@@ -128,9 +166,10 @@
                     <div class="eyebrow">Workspace</div>
                     <h2 id="workspaceTitle">Hermes workspace</h2>
                     <p id="workspaceSummary" class="muted">
-                        Создавай чаты, подключай участников и постепенно превращай bridge в самостоятельный клиент.
+                        Выбери чат слева или создай новый. Эта панель станет основой будущего клиента Hermes.
                     </p>
                 </div>
+
                 <div class="workspace-metrics">
                     <article class="metric-card">
                         <span>Чатов</span>
@@ -173,7 +212,10 @@
                 <section id="conversationView" class="conversation-view hidden">
                     <header class="conversation-header">
                         <div>
-                            <div id="conversationRole" class="role-pill"></div>
+                            <div class="conversation-topline">
+                                <div id="conversationRole" class="role-pill"></div>
+                                <span class="conversation-online">Bridge connected</span>
+                            </div>
                             <h2 id="conversationTitle"></h2>
                             <p id="conversationMeta" class="muted"></p>
                         </div>
@@ -187,8 +229,18 @@
                         <div class="messages-panel">
                             <div id="messagesList" class="messages-list"></div>
                             <form id="messageForm" class="message-form">
+                                <div class="message-composer-meta">
+                                    <label class="attachment-picker" for="messageAttachmentsInput">
+                                        <input id="messageAttachmentsInput" type="file" multiple accept="image/*,.pdf,.doc,.docx,.txt,.zip,.rtf,application/*">
+                                        <span>Добавить файлы</span>
+                                    </label>
+                                    <span id="attachmentSelectionLabel" class="composer-hint">Без вложений</span>
+                                </div>
                                 <textarea id="messageInput" rows="2" placeholder="Напиши сообщение..."></textarea>
-                                <button type="submit" class="primary-button">Отправить</button>
+                                <div class="message-form-actions">
+                                    <span class="composer-hint">Enter отправляет, Shift+Enter переносит строку</span>
+                                    <button id="sendMessageButton" type="submit" class="primary-button">Отправить</button>
+                                </div>
                             </form>
                         </div>
 
@@ -219,6 +271,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/app.js" defer></script>
+<script src="/app.js?v=20260317-media-2" defer></script>
 </body>
 </html>

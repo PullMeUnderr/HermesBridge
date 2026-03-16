@@ -1,6 +1,8 @@
 package com.vladislav.tgclone.bridge;
 
+import com.vladislav.tgclone.conversation.ConversationAttachmentDraft;
 import java.time.Instant;
+import java.util.List;
 
 public record TelegramInboundEnvelope(
     String externalChatId,
@@ -8,6 +10,7 @@ public record TelegramInboundEnvelope(
     String authorId,
     String authorDisplayName,
     String body,
-    Instant createdAt
+    Instant createdAt,
+    List<ConversationAttachmentDraft> attachments
 ) {
 }

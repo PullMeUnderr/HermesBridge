@@ -148,10 +148,11 @@ class MessageRelayServiceTest {
             "42",
             "Alice",
             "Hi",
-            Instant.EPOCH
+            Instant.EPOCH,
+            List.of()
         ));
 
-        verify(conversationService, never()).createExternalMessage(any(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(conversationService, never()).createExternalMessage(any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
         verify(conversationEventPublisher, never()).publish(any());
         verify(telegramGateway, never()).deliver(any(), any());
     }

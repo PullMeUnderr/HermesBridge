@@ -10,3 +10,4 @@ target/
 .env.*
 *.mv.db
 *.trace.db
+data/

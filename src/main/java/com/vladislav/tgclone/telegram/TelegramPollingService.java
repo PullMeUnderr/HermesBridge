@@ -4,6 +4,8 @@ import com.vladislav.tgclone.account.TelegramRegistrationResult;
 import com.vladislav.tgclone.account.TelegramRegistrationService;
 import com.vladislav.tgclone.account.UserAccount;
 import com.vladislav.tgclone.account.UserAccountService;
+import com.vladislav.tgclone.conversation.ConversationAttachmentDraft;
+import com.vladislav.tgclone.conversation.ConversationAttachmentKind;
 import com.vladislav.tgclone.bridge.MessageRelayService;
 import com.vladislav.tgclone.bridge.TelegramInboundEnvelope;
 import com.vladislav.tgclone.bridge.TransportBinding;
@@ -19,6 +21,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -118,12 +121,16 @@ public class TelegramPollingService {
         if (update.message() == null || update.message().chat() == null) {
             return;
         }
-        if (update.message().text() == null || update.message().text().isBlank()) {
+
+        if ("private".equalsIgnoreCase(update.message().chat().type())) {
+            if (update.message().text() == null || update.message().text().isBlank()) {
+                return;
+            }
+            handlePrivateChat(update.message());
             return;
         }
 
-        if ("private".equalsIgnoreCase(update.message().chat().type())) {
-            handlePrivateChat(update.message());
+        if (!hasSupportedGroupPayload(update.message())) {
             return;
         }
 
@@ -175,8 +182,9 @@ public class TelegramPollingService {
             String.valueOf(message.messageId()),
             telegramUser == null || telegramUser.id() == null ? null : String.valueOf(telegramUser.id()),
             telegramUser == null ? "Telegram User" : telegramUser.displayName(),
-            message.text(),
-            message.sentAt()
+            extractInboundBody(message),
+            message.sentAt(),
+            extractInboundAttachments(message)
         );
 
         try {
@@ -554,6 +562,70 @@ public class TelegramPollingService {
 
     private boolean isCommand(String text) {
         return text != null && text.stripLeading().startsWith("/");
+    }
+
+    private boolean hasSupportedGroupPayload(TelegramMessageDto message) {
+        return (message.text() != null && !message.text().isBlank())
+            || (message.caption() != null && !message.caption().isBlank())
+            || (message.photo() != null && !message.photo().isEmpty())
+            || message.document() != null;
+    }
+
+    private String extractInboundBody(TelegramMessageDto message) {
+        if (message.text() != null && !message.text().isBlank()) {
+            return message.text();
+        }
+        if (message.caption() != null && !message.caption().isBlank()) {
+            return message.caption();
+        }
+        return "";
+    }
+
+    private List<ConversationAttachmentDraft> extractInboundAttachments(TelegramMessageDto message) {
+        List<ConversationAttachmentDraft> attachments = new ArrayList<>();
+
+        TelegramPhotoSizeDto photo = largestPhoto(message.photo());
+        if (photo != null && photo.fileId() != null && !photo.fileId().isBlank()) {
+            attachments.add(telegramBotClient.downloadAttachment(
+                photo.fileId(),
+                ConversationAttachmentKind.PHOTO,
+                "telegram-photo-" + message.messageId() + ".jpg",
+                "image/jpeg",
+                photo.fileSize()
+            ));
+        }
+
+        TelegramDocumentDto document = message.document();
+        if (document != null && document.fileId() != null && !document.fileId().isBlank()) {
+            attachments.add(telegramBotClient.downloadAttachment(
+                document.fileId(),
+                ConversationAttachmentKind.DOCUMENT,
+                document.fileName(),
+                document.mimeType(),
+                document.fileSize()
+            ));
+        }
+
+        return attachments;
+    }
+
+    private TelegramPhotoSizeDto largestPhoto(List<TelegramPhotoSizeDto> photos) {
+        if (photos == null || photos.isEmpty()) {
+            return null;
+        }
+
+        return photos.stream()
+            .max(
+                Comparator.comparingLong(photo -> {
+                    if (photo.fileSize() != null && photo.fileSize() > 0) {
+                        return photo.fileSize();
+                    }
+                    long width = photo.width() == null ? 0 : photo.width();
+                    long height = photo.height() == null ? 0 : photo.height();
+                    return width * height;
+                })
+            )
+            .orElse(null);
     }
 
     private String extractArgument(String text) {

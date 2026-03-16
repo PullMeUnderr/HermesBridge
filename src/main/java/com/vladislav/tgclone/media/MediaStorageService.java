@@ -1,7 +1,6 @@
 package com.vladislav.tgclone.media;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -10,6 +9,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -76,8 +76,12 @@ public class MediaStorageService {
     private String normalizeMimeType(String mimeType, String filename) {
         if (mimeType != null && !mimeType.isBlank()) {
             String normalized = mimeType.trim();
+            int parameterDelimiter = normalized.indexOf(';');
+            if (parameterDelimiter >= 0) {
+                normalized = normalized.substring(0, parameterDelimiter).trim();
+            }
             if (!normalized.equalsIgnoreCase("application/octet-stream")) {
-                return normalized;
+                return normalized.toLowerCase(Locale.ROOT);
             }
         }
 

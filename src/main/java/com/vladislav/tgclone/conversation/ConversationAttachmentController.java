@@ -34,11 +34,7 @@ public class ConversationAttachmentController {
             conversationAttachmentService.resolveForUser(authenticatedUser, attachmentId);
 
         ConversationAttachment attachment = resolvedAttachment.attachment();
-        MediaType mediaType = MediaType.parseMediaType(
-            attachment.getMimeType() == null || attachment.getMimeType().isBlank()
-                ? MediaType.APPLICATION_OCTET_STREAM_VALUE
-                : attachment.getMimeType()
-        );
+        MediaType mediaType = resolveMediaType(attachment.getMimeType());
 
         return ResponseEntity.ok()
             .cacheControl(CacheControl.noStore().mustRevalidate())
@@ -51,5 +47,27 @@ public class ConversationAttachmentController {
             .header(HttpHeaders.PRAGMA, "no-cache")
             .header(HttpHeaders.EXPIRES, "0")
             .body(new InputStreamResource(Files.newInputStream(resolvedAttachment.path())));
+    }
+
+    private MediaType resolveMediaType(String rawMimeType) {
+        if (rawMimeType == null || rawMimeType.isBlank()) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+
+        String sanitized = rawMimeType.trim();
+        int parameterDelimiter = sanitized.indexOf(';');
+        if (parameterDelimiter >= 0) {
+            sanitized = sanitized.substring(0, parameterDelimiter).trim();
+        }
+
+        if (sanitized.isBlank()) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+
+        try {
+            return MediaType.parseMediaType(sanitized);
+        } catch (Exception ignored) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
     }
 }

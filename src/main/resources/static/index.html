@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/app.css?v=20260317-albums-1">
+    <link rel="stylesheet" href="/app.css?v=20260317-linkify-1">
 </head>
 <body>
 <div class="page-shell">
@@ -236,6 +236,7 @@
                                             <span>Добавить файлы</span>
                                         </label>
                                         <button id="sendAsVideoNoteButton" type="button" class="ghost-button compact-button hidden">Кружок</button>
+                                        <button id="recordVideoNoteButton" type="button" class="ghost-button compact-button video-note-record-button">Зажми для кружка</button>
                                         <button id="recordVoiceButton" type="button" class="ghost-button voice-record-button">Голосовое</button>
                                     </div>
                                     <span id="attachmentSelectionLabel" class="composer-hint">Без вложений</span>
@@ -249,6 +250,27 @@
                                         <button id="clearRecordedVoiceButton" type="button" class="ghost-button compact-button">Удалить</button>
                                     </div>
                                     <audio id="recordedVoiceAudio" class="attachment-audio hidden" controls preload="metadata"></audio>
+                                </div>
+                                <div id="videoNoteRecordingPreview" class="video-note-recording-preview hidden">
+                                    <div class="recorded-voice-header">
+                                        <div>
+                                            <div id="videoNoteRecordingStatus" class="section-caption">Кружок · запись</div>
+                                            <div id="videoNoteRecordingMeta" class="composer-hint">00:00 · отпусти кнопку, чтобы отправить</div>
+                                        </div>
+                                        <div class="video-note-recording-badge">
+                                            <span class="video-note-recording-dot"></span>
+                                            <span id="videoNoteRecordingTimer">00:00</span>
+                                        </div>
+                                    </div>
+                                    <div class="video-note-recording-shell">
+                                        <video
+                                            id="videoNoteRecordingVideo"
+                                            class="video-note-recording-video"
+                                            autoplay
+                                            muted
+                                            playsinline
+                                        ></video>
+                                    </div>
                                 </div>
                                 <textarea id="messageInput" rows="2" placeholder="Напиши сообщение..."></textarea>
                                 <div class="message-form-actions">
@@ -285,6 +307,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/app.js?v=20260317-albums-1" defer></script>
+<script src="/app.js?v=20260317-linkify-1" defer></script>
 </body>
 </html>

@@ -32,4 +32,21 @@ class MediaStorageServiceTest {
         assertEquals("video/mp4", stored.mimeType());
         assertTrue(Files.exists(stored.path()));
     }
+
+    @Test
+    void storeStripsMimeTypeParametersFromBrowserRecordedVideo() throws Exception {
+        MediaStorageService mediaStorageService = new MediaStorageService(
+            new MediaProperties(tempDir.toString(), 1024 * 1024),
+            Clock.fixed(Instant.parse("2026-03-17T01:05:00Z"), ZoneOffset.UTC)
+        );
+
+        StoredMediaFile stored = mediaStorageService.store(
+            "video-note.mp4",
+            "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+            new byte[] {1, 2, 3, 4}
+        );
+
+        assertEquals("video/mp4", stored.mimeType());
+        assertTrue(Files.exists(stored.path()));
+    }
 }

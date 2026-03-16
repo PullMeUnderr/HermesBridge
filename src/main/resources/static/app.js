@@ -21,6 +21,16 @@ const state = {
   recordedVoiceFile: null,
   recordedVoiceObjectUrl: null,
   isRecordingVoice: false,
+  videoNoteRecorder: null,
+  videoNoteRecorderStream: null,
+  videoNoteRecorderChunks: [],
+  videoNoteRecorderMimeType: "",
+  isRecordingVideoNote: false,
+  activeVideoNotePointerId: null,
+  videoNoteTargetConversationId: null,
+  discardVideoNoteOnStop: false,
+  videoNoteRecordingStartedAt: null,
+  videoNoteRecordingTimerHandle: null,
   sendAsVideoNote: false,
 };
 
@@ -64,12 +74,18 @@ const elements = {
   messageAttachmentsInput: document.getElementById("messageAttachmentsInput"),
   attachmentSelectionLabel: document.getElementById("attachmentSelectionLabel"),
   sendAsVideoNoteButton: document.getElementById("sendAsVideoNoteButton"),
+  recordVideoNoteButton: document.getElementById("recordVideoNoteButton"),
   recordVoiceButton: document.getElementById("recordVoiceButton"),
   recordedVoicePreview: document.getElementById("recordedVoicePreview"),
   recordedVoiceStatus: document.getElementById("recordedVoiceStatus"),
   recordedVoiceMeta: document.getElementById("recordedVoiceMeta"),
   recordedVoiceAudio: document.getElementById("recordedVoiceAudio"),
   clearRecordedVoiceButton: document.getElementById("clearRecordedVoiceButton"),
+  videoNoteRecordingPreview: document.getElementById("videoNoteRecordingPreview"),
+  videoNoteRecordingStatus: document.getElementById("videoNoteRecordingStatus"),
+  videoNoteRecordingMeta: document.getElementById("videoNoteRecordingMeta"),
+  videoNoteRecordingTimer: document.getElementById("videoNoteRecordingTimer"),
+  videoNoteRecordingVideo: document.getElementById("videoNoteRecordingVideo"),
   sendMessageButton: document.getElementById("sendMessageButton"),
   toast: document.getElementById("toast"),
 };
@@ -103,6 +119,8 @@ elements.logoutButton.addEventListener("click", () => {
   state.sidebarDrawerMode = null;
   state.messageSubmitInFlight = false;
   state.sendAsVideoNote = false;
+  state.videoNoteTargetConversationId = null;
+  cancelVideoNoteRecording(true);
   discardRecordedVoice();
   resetAttachmentObjectUrls();
   stopPolling();
@@ -211,6 +229,48 @@ elements.sendAsVideoNoteButton.addEventListener("click", () => {
   renderComposerState();
 });
 
+elements.recordVideoNoteButton.addEventListener("pointerdown", async (event) => {
+  event.preventDefault();
+  if (state.isRecordingVideoNote || state.messageSubmitInFlight) {
+    return;
+  }
+
+  const started = await startVideoNoteRecording(event.pointerId);
+  if (started) {
+    elements.recordVideoNoteButton.setPointerCapture?.(event.pointerId);
+  }
+});
+
+elements.recordVideoNoteButton.addEventListener("pointerup", (event) => {
+  if (state.activeVideoNotePointerId !== event.pointerId) {
+    return;
+  }
+  stopVideoNoteRecording();
+});
+
+elements.recordVideoNoteButton.addEventListener("pointercancel", (event) => {
+  if (state.activeVideoNotePointerId !== event.pointerId) {
+    return;
+  }
+  cancelVideoNoteRecording();
+});
+
+elements.recordVideoNoteButton.addEventListener("lostpointercapture", (event) => {
+  if (state.activeVideoNotePointerId !== event.pointerId) {
+    return;
+  }
+
+  if (state.isRecordingVideoNote) {
+    stopVideoNoteRecording();
+  }
+});
+
+elements.recordVideoNoteButton.addEventListener("contextmenu", (event) => {
+  if (state.isRecordingVideoNote) {
+    event.preventDefault();
+  }
+});
+
 elements.recordVoiceButton.addEventListener("click", async () => {
   if (state.isRecordingVoice) {
     stopVoiceRecording();
@@ -238,6 +298,10 @@ elements.messageForm.addEventListener("submit", async (event) => {
   const body = elements.messageInput.value.trim();
   if (state.isRecordingVoice) {
     showToast("Сначала останови запись голосового.", "error");
+    return;
+  }
+  if (state.isRecordingVideoNote) {
+    showToast("Сначала отпусти кнопку кружка.", "error");
     return;
   }
 
@@ -305,6 +369,7 @@ async function bootstrapSession() {
       selectConversation(state.selectedConversationId || state.conversations[0].id);
     }
   } catch (error) {
+    cancelVideoNoteRecording(true);
     discardRecordedVoice();
     localStorage.removeItem("hermes_token");
     state.token = "";
@@ -664,7 +729,7 @@ function touchSync() {
 }
 
 function shouldPausePolling() {
-  return state.messageSubmitInFlight || state.isRecordingVoice;
+  return state.messageSubmitInFlight || state.isRecordingVoice || state.isRecordingVideoNote;
 }
 
 async function guardedAction(action) {
@@ -718,7 +783,51 @@ function renderMessageBody(body) {
     return "";
   }
 
-  return `<div class="message-body">${escapeHtml(body)}</div>`;
+  return `<div class="message-body">${renderRichMessageText(body)}</div>`;
+}
+
+function renderRichMessageText(body) {
+  return String(body)
+    .split("\n")
+    .map((line) => linkifyMessageLine(line))
+    .join("<br>");
+}
+
+function linkifyMessageLine(line) {
+  const text = String(line ?? "");
+  const urlPattern = /(https?:\/\/[^\s<]+|file:\/\/[^\s<]+|tg:\/\/[^\s<]+|mailto:[^\s<]+)/gi;
+  let cursor = 0;
+  let html = "";
+
+  for (const match of text.matchAll(urlPattern)) {
+    const matchedUrl = match[0];
+    const startIndex = match.index ?? 0;
+    const endIndex = startIndex + matchedUrl.length;
+
+    html += escapeHtml(text.slice(cursor, startIndex));
+    html += renderMessageLink(matchedUrl);
+    cursor = endIndex;
+  }
+
+  html += escapeHtml(text.slice(cursor));
+  return html;
+}
+
+function renderMessageLink(rawUrl) {
+  const href = rawUrl.trim();
+  const isExternal = !href.toLowerCase().startsWith("file://");
+  const label = formatMessageLinkLabel(href);
+  const targetAttributes = isExternal ? ' target="_blank" rel="noopener noreferrer"' : "";
+
+  return `<a class="message-link" href="${escapeHtml(href)}"${targetAttributes}>${escapeHtml(label)}</a>`;
+}
+
+function formatMessageLinkLabel(url) {
+  try {
+    return decodeURI(url);
+  } catch (error) {
+    return url;
+  }
 }
 
 function renderMessageAttachments(attachments) {
@@ -788,15 +897,29 @@ function renderAttachmentCard(attachment) {
   if (attachment.kind === "VIDEO_NOTE") {
     return `
       <figure class="attachment-card attachment-card-video-note">
-        <div class="video-note-shell">
+        <div
+          class="video-note-shell"
+          data-video-note-shell-id="${attachment.id}"
+          tabindex="0"
+          role="button"
+          aria-label="Воспроизвести кружок"
+        >
           <video
             class="attachment-video-note hidden"
-            controls
             playsinline
             preload="metadata"
             data-attachment-preview-id="${attachment.id}"
             data-content-url="${escapeHtml(attachment.contentUrl)}"
+            data-video-note-id="${attachment.id}"
           ></video>
+          <button
+            class="video-note-toggle"
+            type="button"
+            data-video-note-toggle-id="${attachment.id}"
+            aria-label="Воспроизвести кружок"
+          >
+            <span class="video-note-toggle-icon">▶</span>
+          </button>
         </div>
         <figcaption class="attachment-caption">
           <span>${escapeHtml(attachment.fileName)}</span>
@@ -869,24 +992,75 @@ function bindAttachmentActions() {
       }
     });
   });
+
+  elements.messagesList.querySelectorAll("[data-video-note-shell-id]").forEach((shell) => {
+    const video = shell.querySelector(".attachment-video-note");
+    if (!video) {
+      return;
+    }
+
+    const syncState = () => syncVideoNotePlaybackState(shell, video);
+
+    shell.addEventListener("click", (event) => {
+      if (event.target.closest(".video-note-toggle")) {
+        return;
+      }
+      event.preventDefault();
+      toggleVideoNotePlayback(shell, video).catch((error) => showToast(error.message, "error"));
+    });
+
+    shell.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      toggleVideoNotePlayback(shell, video).catch((error) => showToast(error.message, "error"));
+    });
+
+    shell.querySelector(".video-note-toggle")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleVideoNotePlayback(shell, video).catch((error) => showToast(error.message, "error"));
+    });
+
+    video.addEventListener("play", syncState);
+    video.addEventListener("pause", syncState);
+    video.addEventListener("ended", syncState);
+    syncState();
+  });
 }
 
 async function hydrateAttachmentPreviews() {
   const mediaElements = Array.from(elements.messagesList.querySelectorAll("[data-attachment-preview-id]"));
-  await Promise.all(
-    mediaElements.map(async (mediaElement) => {
-      try {
-        const objectUrl = await ensureAttachmentObjectUrl(
-          mediaElement.dataset.attachmentPreviewId,
-          mediaElement.dataset.contentUrl
-        );
-        mediaElement.src = objectUrl;
-        mediaElement.classList.remove("hidden");
-      } catch (error) {
-        mediaElement.remove();
-      }
-    })
-  );
+  await Promise.all(mediaElements.map((mediaElement) => hydrateAttachmentPreview(mediaElement)));
+}
+
+async function hydrateAttachmentPreview(mediaElement) {
+  if (!mediaElement) {
+    return;
+  }
+
+  try {
+    const objectUrl = await ensureAttachmentObjectUrl(
+      mediaElement.dataset.attachmentPreviewId,
+      mediaElement.dataset.contentUrl
+    );
+    if (mediaElement.src !== objectUrl) {
+      mediaElement.src = objectUrl;
+    }
+    if (typeof mediaElement.load === "function") {
+      mediaElement.load();
+    }
+    mediaElement.dataset.previewReady = "true";
+    mediaElement.removeAttribute("data-preview-error");
+    mediaElement.classList.remove("hidden");
+    mediaElement.closest(".video-note-shell")?.classList.remove("is-unavailable");
+  } catch (error) {
+    mediaElement.dataset.previewReady = "false";
+    mediaElement.dataset.previewError = "true";
+    mediaElement.closest(".video-note-shell")?.classList.add("is-unavailable");
+    mediaElement.remove();
+  }
 }
 
 async function ensureAttachmentObjectUrl(attachmentId, contentUrl) {
@@ -933,6 +1107,102 @@ async function downloadAttachment(contentUrl, fileName) {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 500);
 }
 
+async function toggleVideoNotePlayback(shell, video) {
+  if (!video) {
+    return;
+  }
+
+  if (!video.currentSrc && video.dataset.contentUrl) {
+    await hydrateAttachmentPreview(video);
+  }
+
+  if (video.dataset.previewError === "true") {
+    throw new Error("Не удалось загрузить кружок.");
+  }
+
+  if (!video.paused && !video.ended) {
+    video.pause();
+    return;
+  }
+
+  await ensureMediaElementReady(video);
+  pauseOtherVideoNotes(video);
+  try {
+    await video.play();
+  } catch (error) {
+    throw new Error("Не удалось запустить кружок.");
+  }
+}
+
+function pauseOtherVideoNotes(currentVideo) {
+  elements.messagesList.querySelectorAll(".attachment-video-note").forEach((video) => {
+    if (video !== currentVideo) {
+      video.pause();
+    }
+  });
+}
+
+async function ensureMediaElementReady(mediaElement) {
+  if (!mediaElement) {
+    return;
+  }
+
+  if (mediaElement.dataset.previewError === "true") {
+    throw new Error("Не удалось загрузить медиа.");
+  }
+
+  if (mediaElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return;
+  }
+
+  if (typeof mediaElement.load === "function") {
+    mediaElement.load();
+  }
+
+  await new Promise((resolve, reject) => {
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      mediaElement.removeEventListener("loadeddata", handleReady);
+      mediaElement.removeEventListener("canplay", handleReady);
+      mediaElement.removeEventListener("error", handleError);
+    };
+
+    const handleReady = () => {
+      cleanup();
+      resolve();
+    };
+
+    const handleError = () => {
+      cleanup();
+      reject(new Error("Не удалось подготовить медиа к воспроизведению."));
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Кружок еще не успел загрузиться."));
+    }, 5000);
+
+    mediaElement.addEventListener("loadeddata", handleReady);
+    mediaElement.addEventListener("canplay", handleReady);
+    mediaElement.addEventListener("error", handleError);
+  });
+}
+
+function syncVideoNotePlaybackState(shell, video) {
+  const isPlaying = Boolean(video && !video.paused && !video.ended);
+  shell.classList.toggle("is-playing", isPlaying);
+
+  const toggle = shell.querySelector(".video-note-toggle");
+  const icon = shell.querySelector(".video-note-toggle-icon");
+  if (!toggle || !icon) {
+    return;
+  }
+
+  toggle.setAttribute("aria-label", isPlaying ? "Поставить кружок на паузу" : "Воспроизвести кружок");
+  shell.setAttribute("aria-label", isPlaying ? "Поставить кружок на паузу" : "Воспроизвести кружок");
+  icon.textContent = isPlaying ? "❚❚" : "▶";
+}
+
 function renderSelectedAttachments() {
   const files = Array.from(elements.messageAttachmentsInput.files || []);
   const selectedFilesSize = files.reduce((sum, file) => sum + file.size, 0);
@@ -944,6 +1214,10 @@ function renderSelectedAttachments() {
 
   if (state.sendAsVideoNote && canSendSelectedFileAsVideoNote()) {
     parts.push("режим кружка");
+  }
+
+  if (state.isRecordingVideoNote) {
+    parts.push("идет запись кружка");
   }
 
   if (state.recordedVoiceFile) {
@@ -975,8 +1249,14 @@ function renderComposerState() {
   elements.sendAsVideoNoteButton.disabled = disabled || !canSendVideoNote;
   elements.sendAsVideoNoteButton.classList.toggle("active", state.sendAsVideoNote && canSendVideoNote);
   elements.sendAsVideoNoteButton.textContent = state.sendAsVideoNote ? "Кружок: вкл" : "Кружок";
+  elements.recordVideoNoteButton.disabled =
+    disabled || state.isRecordingVoice || !browserSupportsVideoNoteRecording();
+  elements.recordVideoNoteButton.classList.toggle("recording", state.isRecordingVideoNote);
+  elements.recordVideoNoteButton.textContent = state.isRecordingVideoNote
+    ? "Отпусти, чтобы отправить"
+    : "Зажми для кружка";
   elements.recordVoiceButton.disabled =
-    disabled || (!state.isRecordingVoice && !browserSupportsVoiceRecording());
+    disabled || state.isRecordingVideoNote || (!state.isRecordingVoice && !browserSupportsVoiceRecording());
   elements.clearRecordedVoiceButton.disabled =
     disabled || (!state.isRecordingVoice && !state.recordedVoiceFile);
   elements.sendMessageButton.disabled = disabled;
@@ -984,6 +1264,7 @@ function renderComposerState() {
   elements.recordVoiceButton.classList.toggle("recording", state.isRecordingVoice);
   elements.clearRecordedVoiceButton.textContent = state.isRecordingVoice ? "Отмена" : "Удалить";
   elements.sendMessageButton.textContent = state.messageSubmitInFlight ? "Отправляем..." : "Отправить";
+  renderVideoNoteRecordingPreview();
   renderRecordedVoicePreview();
 }
 
@@ -999,6 +1280,78 @@ function showToast(message, kind = "success", duration = 4200) {
   showToast.timer = window.setTimeout(() => {
     elements.toast.className = "toast hidden";
   }, duration);
+}
+
+function renderVideoNoteRecordingPreview() {
+  const visible = state.isRecordingVideoNote && Boolean(state.videoNoteRecorderStream);
+  elements.videoNoteRecordingPreview.classList.toggle("hidden", !visible);
+
+  if (!visible) {
+    detachVideoNoteRecordingPreview();
+    elements.videoNoteRecordingStatus.textContent = "Кружок · запись";
+    elements.videoNoteRecordingMeta.textContent = "00:00 · отпусти кнопку, чтобы отправить";
+    elements.videoNoteRecordingTimer.textContent = "00:00";
+    return;
+  }
+
+  attachVideoNoteRecordingPreview();
+  const elapsedMs = Math.max(0, Date.now() - (state.videoNoteRecordingStartedAt || Date.now()));
+  const elapsedLabel = formatRecordingDuration(elapsedMs);
+  elements.videoNoteRecordingStatus.textContent = "Кружок · запись";
+  elements.videoNoteRecordingMeta.textContent = `${elapsedLabel} · отпусти кнопку, чтобы отправить`;
+  elements.videoNoteRecordingTimer.textContent = elapsedLabel;
+}
+
+function attachVideoNoteRecordingPreview() {
+  const preview = elements.videoNoteRecordingVideo;
+  if (!preview) {
+    return;
+  }
+
+  if (preview.srcObject !== state.videoNoteRecorderStream) {
+    preview.srcObject = state.videoNoteRecorderStream || null;
+  }
+
+  preview.muted = true;
+  preview.playsInline = true;
+  preview.play?.().catch(() => {});
+}
+
+function detachVideoNoteRecordingPreview() {
+  const preview = elements.videoNoteRecordingVideo;
+  if (!preview) {
+    return;
+  }
+
+  preview.pause?.();
+  if (preview.srcObject) {
+    preview.srcObject = null;
+  }
+}
+
+function startVideoNoteRecordingTicker() {
+  stopVideoNoteRecordingTicker();
+  state.videoNoteRecordingTimerHandle = window.setInterval(() => {
+    if (!state.isRecordingVideoNote) {
+      stopVideoNoteRecordingTicker();
+      return;
+    }
+    renderVideoNoteRecordingPreview();
+  }, 250);
+}
+
+function stopVideoNoteRecordingTicker() {
+  if (state.videoNoteRecordingTimerHandle) {
+    window.clearInterval(state.videoNoteRecordingTimerHandle);
+    state.videoNoteRecordingTimerHandle = null;
+  }
+}
+
+function formatRecordingDuration(durationMs) {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function formatTimestamp(value) {
@@ -1146,6 +1499,169 @@ function getComposerFiles() {
 function normalizeVideoNoteSelectionState() {
   if (!canSendSelectedFileAsVideoNote()) {
     state.sendAsVideoNote = false;
+  }
+}
+
+async function startVideoNoteRecording(pointerId) {
+  if (!state.selectedConversationId) {
+    showToast("Сначала выбери чат.", "error");
+    return false;
+  }
+
+  if (state.messageSubmitInFlight || state.isRecordingVoice) {
+    return false;
+  }
+
+  if (!browserSupportsVideoNoteRecording()) {
+    showToast("Этот браузер не поддерживает запись кружков.", "error");
+    return false;
+  }
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: { ideal: 480 },
+        height: { ideal: 480 },
+      },
+      audio: true,
+    });
+  } catch (error) {
+    showToast("Не удалось получить доступ к камере.", "error");
+    return false;
+  }
+
+  const preferredFormat = selectPreferredVideoNoteRecordingFormat();
+  let recorder;
+  try {
+    recorder = preferredFormat
+      ? new MediaRecorder(stream, { mimeType: preferredFormat.mimeType })
+      : new MediaRecorder(stream);
+  } catch (error) {
+    stopMediaStream(stream);
+    showToast("Не удалось запустить запись кружка.", "error");
+    return false;
+  }
+
+  state.videoNoteRecorder = recorder;
+  state.videoNoteRecorderStream = stream;
+  state.videoNoteRecorderChunks = [];
+  state.videoNoteRecorderMimeType = recorder.mimeType || preferredFormat?.mimeType || "video/webm";
+  state.isRecordingVideoNote = true;
+  state.activeVideoNotePointerId = pointerId ?? null;
+  state.videoNoteTargetConversationId = state.selectedConversationId;
+  state.discardVideoNoteOnStop = false;
+  state.videoNoteRecordingStartedAt = Date.now();
+  recorder.addEventListener("dataavailable", handleVideoNoteRecordingChunk);
+  recorder.addEventListener("stop", handleVideoNoteRecordingStopped, { once: true });
+  recorder.start();
+  startVideoNoteRecordingTicker();
+  renderSelectedAttachments();
+  renderComposerState();
+  return true;
+}
+
+function stopVideoNoteRecording() {
+  if (!state.videoNoteRecorder || state.videoNoteRecorder.state === "inactive") {
+    return;
+  }
+
+  state.discardVideoNoteOnStop = false;
+  state.isRecordingVideoNote = false;
+  state.videoNoteRecorder.stop();
+  renderSelectedAttachments();
+  renderComposerState();
+}
+
+function cancelVideoNoteRecording(silent = false) {
+  if (state.videoNoteRecorder && state.videoNoteRecorder.state !== "inactive") {
+    state.discardVideoNoteOnStop = true;
+    state.videoNoteRecorder.removeEventListener("dataavailable", handleVideoNoteRecordingChunk);
+    try {
+      state.videoNoteRecorder.stop();
+    } catch (error) {
+      // ignore best effort stop
+    }
+  }
+
+  cleanupVideoNoteRecorder();
+  if (!silent) {
+    renderSelectedAttachments();
+    renderComposerState();
+  }
+}
+
+function handleVideoNoteRecordingChunk(event) {
+  if (event.data && event.data.size > 0) {
+    state.videoNoteRecorderChunks.push(event.data);
+  }
+}
+
+async function handleVideoNoteRecordingStopped() {
+  const blob = new Blob(state.videoNoteRecorderChunks, {
+    type: state.videoNoteRecorderMimeType || "video/webm",
+  });
+  const targetConversationId = state.videoNoteTargetConversationId;
+  const shouldDiscard = state.discardVideoNoteOnStop;
+  cleanupVideoNoteRecorder();
+  renderSelectedAttachments();
+  renderComposerState();
+
+  if (shouldDiscard || !targetConversationId || blob.size === 0) {
+    if (!shouldDiscard && blob.size === 0) {
+      showToast("Кружок получился пустым.", "error");
+    }
+    return;
+  }
+
+  const mimeType = blob.type || "video/webm";
+  const file = new File([blob], `video-note-${createRecordingTimestamp()}.${resolveVideoNoteRecordingExtension(mimeType)}`, {
+    type: mimeType,
+    lastModified: Date.now(),
+  });
+  await uploadRecordedVideoNote(targetConversationId, file);
+}
+
+function cleanupVideoNoteRecorder() {
+  stopVideoNoteRecordingTicker();
+  detachVideoNoteRecordingPreview();
+  if (state.videoNoteRecorderStream) {
+    stopMediaStream(state.videoNoteRecorderStream);
+  }
+  state.videoNoteRecorder = null;
+  state.videoNoteRecorderStream = null;
+  state.videoNoteRecorderChunks = [];
+  state.videoNoteRecorderMimeType = "";
+  state.isRecordingVideoNote = false;
+  state.activeVideoNotePointerId = null;
+  state.videoNoteTargetConversationId = null;
+  state.discardVideoNoteOnStop = false;
+  state.videoNoteRecordingStartedAt = null;
+}
+
+async function uploadRecordedVideoNote(conversationId, file) {
+  state.messageSubmitInFlight = true;
+  renderComposerState();
+
+  try {
+    const formData = new FormData();
+    formData.append("sendAsVideoNote", "true");
+    formData.append("files", file);
+
+    await api(`/api/conversations/${conversationId}/messages/upload`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (conversationId === state.selectedConversationId) {
+      await loadMessages(conversationId);
+    }
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    state.messageSubmitInFlight = false;
+    renderComposerState();
   }
 }
 
@@ -1307,6 +1823,10 @@ function browserSupportsVoiceRecording() {
   return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
 }
 
+function browserSupportsVideoNoteRecording() {
+  return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+}
+
 function canSendSelectedFileAsVideoNote() {
   if (state.recordedVoiceFile) {
     return false;
@@ -1355,6 +1875,22 @@ function selectPreferredVoiceRecordingFormat() {
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate.mimeType)) || null;
 }
 
+function selectPreferredVideoNoteRecordingFormat() {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return null;
+  }
+
+  const candidates = [
+    { mimeType: "video/mp4;codecs=avc1.42E01E,mp4a.40.2" },
+    { mimeType: "video/mp4" },
+    { mimeType: "video/webm;codecs=vp9,opus" },
+    { mimeType: "video/webm;codecs=vp8,opus" },
+    { mimeType: "video/webm" },
+  ];
+
+  return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate.mimeType)) || null;
+}
+
 function resolveVoiceRecordingExtension(mimeType) {
   const normalized = String(mimeType || "").toLowerCase();
   if (normalized.includes("mp4")) {
@@ -1370,6 +1906,17 @@ function resolveVoiceRecordingExtension(mimeType) {
     return "webm";
   }
   return "ogg";
+}
+
+function resolveVideoNoteRecordingExtension(mimeType) {
+  const normalized = String(mimeType || "").toLowerCase();
+  if (normalized.includes("mp4")) {
+    return "mp4";
+  }
+  if (normalized.includes("webm")) {
+    return "webm";
+  }
+  return "mp4";
 }
 
 function createRecordingTimestamp() {

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hermes Messenger</title>
+    <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="page-shell">
+    <section id="loginView" class="auth-layout">
+        <div class="hero-panel">
+            <div class="eyebrow">Hermes Bridge</div>
+            <h1>Своя связанная сеть общения, где Telegram только мост, а не единственная точка опоры.</h1>
+            <p class="lead">
+                Мы уже умеем создавать аккаунты, чаты, инвайты и синхронизировать группы Telegram. Этот экран
+                становится базовой контрольной палубой будущего Hermes.
+            </p>
+            <div class="feature-grid">
+                <article class="feature-card">
+                    <span class="feature-kicker">01</span>
+                    <h3>Bot-first onboarding</h3>
+                    <p>Пользователь заходит через бота, получает токен и сразу попадает в экосистему Hermes.</p>
+                </article>
+                <article class="feature-card">
+                    <span class="feature-kicker">02</span>
+                    <h3>Bridge для групп</h3>
+                    <p>Телеграм-группа привязывается к внутреннему чату и остается частью общей модели ролей и инвайтов.</p>
+                </article>
+                <article class="feature-card">
+                    <span class="feature-kicker">03</span>
+                    <h3>Основа для роста</h3>
+                    <p>Сейчас это тестовый клиент, но дизайн уже выстроен как панель управления самостоятельным мессенджером.</p>
+                </article>
+            </div>
+        </div>
+
+        <section class="auth-card">
+            <div class="eyebrow">Вход в клиент</div>
+            <h2>Подключи свой Hermes-аккаунт</h2>
+            <p class="muted">
+                Получи bearer token у <strong>@HermesBridgeBot</strong> и вставь его сюда, чтобы открыть тестовый web UI.
+            </p>
+            <form id="loginForm" class="stack">
+                <label class="stack gap-sm">
+                    <span>API token</span>
+                    <textarea id="tokenInput" rows="4" placeholder="tgc_..."></textarea>
+                </label>
+                <button type="submit" class="primary-button">Войти по токену</button>
+            </form>
+            <div class="auth-note">
+                <strong>Что дальше</strong>
+                <p class="muted">
+                    После входа можно создавать чаты, вступать по invite-коду, смотреть участников и тестировать сообщения уже вне Telegram.
+                </p>
+            </div>
+        </section>
+    </section>
+
+    <section id="appView" class="app-layout hidden">
+        <aside class="sidebar">
+            <div class="brand-block">
+                <div class="brand-mark">
+                    <div class="brand-rune">H</div>
+                    <div>
+                        <div class="eyebrow">Hermes Bridge</div>
+                        <h2>Control Deck</h2>
+                    </div>
+                </div>
+                <p class="muted">
+                    Рабочая панель для живого теста Hermes: чаты, инвайты, участники и связка с Telegram.
+                </p>
+                <div id="userCard" class="user-card"></div>
+                <button id="logoutButton" class="ghost-button">Выйти</button>
+            </div>
+
+            <div class="panel">
+                <div class="section-caption">Новый чат</div>
+                <h3>Создать пространство</h3>
+                <form id="createChatForm" class="stack">
+                    <input id="newChatTitle" type="text" placeholder="Название чата">
+                    <button type="submit" class="primary-button">Создать чат</button>
+                </form>
+            </div>
+
+            <div class="panel">
+                <div class="section-caption">Invite flow</div>
+                <h3>Войти по коду</h3>
+                <form id="joinInviteForm" class="stack">
+                    <input id="inviteCodeInput" type="text" placeholder="join_...">
+                    <button type="submit" class="secondary-button">Войти в чат</button>
+                </form>
+            </div>
+
+            <div class="panel grow">
+                <div class="panel-head">
+                    <div>
+                        <div class="section-caption">Навигация</div>
+                        <h3>Твои чаты</h3>
+                    </div>
+                    <button id="refreshChatsButton" class="icon-button" type="button" aria-label="Обновить">↻</button>
+                </div>
+                <div id="conversationList" class="conversation-list"></div>
+            </div>
+
+            <div class="panel compact-panel">
+                <div class="section-caption">Быстрый цикл</div>
+                <div class="quick-steps">
+                    <article class="step-card">
+                        <strong>1</strong>
+                        <span>Создай чат или привяжи группу через бота.</span>
+                    </article>
+                    <article class="step-card">
+                        <strong>2</strong>
+                        <span>Отправь invite и дай людям войти кнопкой <em>Вход</em>.</span>
+                    </article>
+                    <article class="step-card">
+                        <strong>3</strong>
+                        <span>Проверь диалог здесь и убедись, что bridge ходит в обе стороны.</span>
+                    </article>
+                </div>
+            </div>
+        </aside>
+
+        <main class="workspace">
+            <header class="workspace-topbar">
+                <div class="workspace-copy">
+                    <div class="eyebrow">Workspace</div>
+                    <h2 id="workspaceTitle">Hermes workspace</h2>
+                    <p id="workspaceSummary" class="muted">
+                        Создавай чаты, подключай участников и постепенно превращай bridge в самостоятельный клиент.
+                    </p>
+                </div>
+                <div class="workspace-metrics">
+                    <article class="metric-card">
+                        <span>Чатов</span>
+                        <strong id="conversationCountValue">0</strong>
+                    </article>
+                    <article class="metric-card">
+                        <span>Профиль</span>
+                        <strong id="userHandleValue">-</strong>
+                    </article>
+                    <article class="metric-card">
+                        <span>Синхронизация</span>
+                        <strong id="syncStateValue">Оффлайн</strong>
+                    </article>
+                </div>
+            </header>
+
+            <section class="workspace-shell">
+                <section id="emptyState" class="empty-state">
+                    <div class="eyebrow">Hermes</div>
+                    <h2>Выбери чат слева</h2>
+                    <p class="muted">
+                        Здесь появятся сообщения, состав участников, invite-кнопка и весь рабочий контур выбранного чата.
+                    </p>
+                    <div class="empty-grid">
+                        <article class="empty-card">
+                            <strong>Создай новый чат</strong>
+                            <p class="muted">Подходит для отдельной команды, круга друзей или тестовой Telegram-группы.</p>
+                        </article>
+                        <article class="empty-card">
+                            <strong>Зайди по invite-коду</strong>
+                            <p class="muted">Новый пользователь может подключиться без терминала и без ручных API вызовов.</p>
+                        </article>
+                        <article class="empty-card">
+                            <strong>Подключи bridge</strong>
+                            <p class="muted">После привязки группы сообщения будут ходить между Hermes и Telegram в обе стороны.</p>
+                        </article>
+                    </div>
+                </section>
+
+                <section id="conversationView" class="conversation-view hidden">
+                    <header class="conversation-header">
+                        <div>
+                            <div id="conversationRole" class="role-pill"></div>
+                            <h2 id="conversationTitle"></h2>
+                            <p id="conversationMeta" class="muted"></p>
+                        </div>
+                        <div class="header-actions">
+                            <button id="createInviteButton" class="secondary-button" type="button">Создать invite</button>
+                            <button id="refreshMessagesButton" class="ghost-button" type="button">Обновить</button>
+                        </div>
+                    </header>
+
+                    <section class="chat-columns">
+                        <div class="messages-panel">
+                            <div id="messagesList" class="messages-list"></div>
+                            <form id="messageForm" class="message-form">
+                                <textarea id="messageInput" rows="2" placeholder="Напиши сообщение..."></textarea>
+                                <button type="submit" class="primary-button">Отправить</button>
+                            </form>
+                        </div>
+
+                        <aside class="members-panel">
+                            <div>
+                                <div class="section-caption">Состав</div>
+                                <h3>Участники</h3>
+                            </div>
+                            <div id="membersList" class="members-list"></div>
+                            <div class="note-card">
+                                <strong>Invite</strong>
+                                <p class="muted">
+                                    Создай invite кнопкой сверху и отправь код человеку. Он сможет зайти через бота кнопкой <strong>Вход</strong> или через поле слева.
+                                </p>
+                            </div>
+                            <div class="note-card">
+                                <strong>Bridge</strong>
+                                <p class="muted">
+                                    Если этот чат связан с Telegram-группой, сообщения и дальше будут зеркалиться между обоими контурами.
+                                </p>
+                            </div>
+                        </aside>
+                    </section>
+                </section>
+            </section>
+        </main>
+    </section>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/app.js" defer></script>
+</body>
+</html>

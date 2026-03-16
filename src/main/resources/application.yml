@@ -1,0 +1,56 @@
+spring:
+  application:
+    name: tgclone
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  datasource:
+    url: ${APP_DATASOURCE_URL:jdbc:h2:mem:tgclone;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
+    username: ${APP_DATASOURCE_USERNAME:sa}
+    password: ${APP_DATASOURCE_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  h2:
+    console:
+      enabled: true
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: false
+  task:
+    scheduling:
+      pool:
+        size: 1
+
+server:
+  shutdown: graceful
+
+app:
+  auth:
+    default-tenant-key: ${APP_DEFAULT_TENANT_KEY:main}
+    api-token-ttl-days: ${APP_API_TOKEN_TTL_DAYS:365}
+  conversations:
+    invite-ttl-hours: ${APP_CONVERSATIONS_INVITE_TTL_HOURS:168}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+telegram:
+  enabled: ${TELEGRAM_ENABLED:false}
+  bot-token: ${TELEGRAM_BOT_TOKEN:}
+  bot-username: ${TELEGRAM_BOT_USERNAME:}
+  poll-timeout-seconds: ${TELEGRAM_POLL_TIMEOUT_SECONDS:25}
+
+logging:
+  level:
+    com.vladislav.tgclone: INFO

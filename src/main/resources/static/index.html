@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/app.css?v=20260317-linkify-1">
+    <link rel="stylesheet" href="/app.css?v=20260317-profile-1">
 </head>
 <body>
 <div class="page-shell">
@@ -144,6 +144,31 @@
                     <form id="joinInviteForm" class="stack">
                         <input id="inviteCodeInput" type="text" placeholder="join_...">
                         <button type="submit" class="secondary-button">Войти в чат</button>
+                    </form>
+                </div>
+
+                <div id="drawerProfileView" class="drawer-view hidden">
+                    <form id="profileForm" class="stack">
+                        <div class="profile-avatar-panel">
+                            <div id="profileAvatarPreview" class="profile-avatar-preview"></div>
+                            <div class="profile-avatar-tools">
+                                <label class="attachment-picker compact-picker" for="profileAvatarInput">
+                                    <input id="profileAvatarInput" type="file" accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.bmp,.heic,.heif,.svg">
+                                    <span>Сменить аватар</span>
+                                </label>
+                                <button id="clearProfileAvatarButton" type="button" class="ghost-button compact-button">Убрать аватар</button>
+                            </div>
+                        </div>
+                        <label class="stack gap-sm">
+                            <span>Имя в Hermes</span>
+                            <input id="profileDisplayNameInput" type="text" maxlength="255" placeholder="Как тебя будут видеть в Hermes">
+                        </label>
+                        <label class="stack gap-sm">
+                            <span>Ник в Hermes</span>
+                            <input id="profileUsernameInput" type="text" maxlength="100" placeholder="your_handle">
+                        </label>
+                        <p id="profileTelegramHint" class="composer-hint">Telegram ник появится здесь после загрузки профиля.</p>
+                        <button id="saveProfileButton" type="submit" class="primary-button">Сохранить профиль</button>
                     </form>
                 </div>
             </section>
@@ -307,6 +332,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/app.js?v=20260317-linkify-1" defer></script>
+<script src="/app.js?v=20260317-profile-1" defer></script>
 </body>
 </html>

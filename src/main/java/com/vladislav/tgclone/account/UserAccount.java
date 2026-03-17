@@ -25,6 +25,18 @@ public class UserAccount {
     @Column(name = "display_name", nullable = false, length = 255)
     private String displayName;
 
+    @Column(name = "avatar_storage_key", length = 500)
+    private String avatarStorageKey;
+
+    @Column(name = "avatar_mime_type", length = 255)
+    private String avatarMimeType;
+
+    @Column(name = "avatar_original_filename", length = 255)
+    private String avatarOriginalFilename;
+
+    @Column(name = "avatar_updated_at")
+    private Instant avatarUpdatedAt;
+
     @Column(nullable = false)
     private boolean active;
 
@@ -68,11 +80,50 @@ public class UserAccount {
         return active;
     }
 
+    public String getAvatarStorageKey() {
+        return avatarStorageKey;
+    }
+
+    public String getAvatarMimeType() {
+        return avatarMimeType;
+    }
+
+    public String getAvatarOriginalFilename() {
+        return avatarOriginalFilename;
+    }
+
+    public Instant getAvatarUpdatedAt() {
+        return avatarUpdatedAt;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
 
+    public void updateUsername(String username) {
+        this.username = username;
+    }
+
     public void updateDisplayName(String displayName) {
         this.displayName = displayName;
+    }
+
+    public void updateAvatar(
+        String avatarStorageKey,
+        String avatarMimeType,
+        String avatarOriginalFilename,
+        Instant avatarUpdatedAt
+    ) {
+        this.avatarStorageKey = avatarStorageKey;
+        this.avatarMimeType = avatarMimeType;
+        this.avatarOriginalFilename = avatarOriginalFilename;
+        this.avatarUpdatedAt = avatarUpdatedAt;
+    }
+
+    public void clearAvatar() {
+        this.avatarStorageKey = null;
+        this.avatarMimeType = null;
+        this.avatarOriginalFilename = null;
+        this.avatarUpdatedAt = null;
     }
 }

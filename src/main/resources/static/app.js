@@ -31,6 +31,9 @@ const state = {
   discardVideoNoteOnStop: false,
   videoNoteRecordingStartedAt: null,
   videoNoteRecordingTimerHandle: null,
+  profileAvatarPreviewUrl: null,
+  profileAvatarRemoveRequested: false,
+  profileSaveInFlight: false,
   sendAsVideoNote: false,
 };
 
@@ -48,11 +51,20 @@ const elements = {
   drawerTitle: document.getElementById("drawerTitle"),
   drawerCreateView: document.getElementById("drawerCreateView"),
   drawerJoinView: document.getElementById("drawerJoinView"),
+  drawerProfileView: document.getElementById("drawerProfileView"),
   closeDrawerButton: document.getElementById("closeDrawerButton"),
   createChatForm: document.getElementById("createChatForm"),
   newChatTitle: document.getElementById("newChatTitle"),
   joinInviteForm: document.getElementById("joinInviteForm"),
   inviteCodeInput: document.getElementById("inviteCodeInput"),
+  profileForm: document.getElementById("profileForm"),
+  profileDisplayNameInput: document.getElementById("profileDisplayNameInput"),
+  profileUsernameInput: document.getElementById("profileUsernameInput"),
+  profileAvatarInput: document.getElementById("profileAvatarInput"),
+  profileAvatarPreview: document.getElementById("profileAvatarPreview"),
+  profileTelegramHint: document.getElementById("profileTelegramHint"),
+  clearProfileAvatarButton: document.getElementById("clearProfileAvatarButton"),
+  saveProfileButton: document.getElementById("saveProfileButton"),
   refreshChatsButton: document.getElementById("refreshChatsButton"),
   conversationList: document.getElementById("conversationList"),
   emptyState: document.getElementById("emptyState"),
@@ -118,8 +130,12 @@ elements.logoutButton.addEventListener("click", () => {
   state.lastSyncAt = null;
   state.sidebarDrawerMode = null;
   state.messageSubmitInFlight = false;
+  state.profileSaveInFlight = false;
+  state.profileAvatarRemoveRequested = false;
   state.sendAsVideoNote = false;
   state.videoNoteTargetConversationId = null;
+  revokeProfileAvatarPreviewUrl();
+  elements.profileAvatarInput.value = "";
   cancelVideoNoteRecording(true);
   discardRecordedVoice();
   resetAttachmentObjectUrls();
@@ -182,6 +198,82 @@ elements.joinInviteForm.addEventListener("submit", async (event) => {
   } catch (error) {
     showToast(error.message, "error");
   }
+});
+
+elements.profileForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.me || state.profileSaveInFlight) {
+    return;
+  }
+
+  const displayName = elements.profileDisplayNameInput.value.trim();
+  const username = elements.profileUsernameInput.value.trim();
+  if (!displayName || !username) {
+    showToast("Заполни имя и ник в Hermes.", "error");
+    return;
+  }
+
+  state.profileSaveInFlight = true;
+  renderProfileForm();
+
+  try {
+    const formData = new FormData();
+    formData.append("displayName", displayName);
+    formData.append("username", username);
+    if (state.profileAvatarRemoveRequested) {
+      formData.append("removeAvatar", "true");
+    }
+    const avatarFile = elements.profileAvatarInput.files?.[0];
+    if (avatarFile) {
+      formData.append("avatar", avatarFile);
+    }
+
+    state.me = await api("/api/auth/me/profile", {
+      method: "PATCH",
+      body: formData,
+    });
+    revokeProfileAvatarPreviewUrl();
+    state.profileAvatarRemoveRequested = false;
+    elements.profileAvatarInput.value = "";
+    render();
+    renderMessages();
+    renderMembers(state.currentMembers);
+    closeDrawer();
+    showToast("Профиль обновлен.", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    state.profileSaveInFlight = false;
+    renderProfileForm();
+  }
+});
+
+elements.profileAvatarInput.addEventListener("change", () => {
+  const file = elements.profileAvatarInput.files?.[0];
+  revokeProfileAvatarPreviewUrl();
+
+  if (!file) {
+    renderProfileForm();
+    return;
+  }
+
+  if (!(file.type || "").toLowerCase().startsWith("image/")) {
+    elements.profileAvatarInput.value = "";
+    showToast("Аватар должен быть изображением.", "error");
+    renderProfileForm();
+    return;
+  }
+
+  state.profileAvatarRemoveRequested = false;
+  state.profileAvatarPreviewUrl = URL.createObjectURL(file);
+  renderProfileForm();
+});
+
+elements.clearProfileAvatarButton.addEventListener("click", () => {
+  revokeProfileAvatarPreviewUrl();
+  elements.profileAvatarInput.value = "";
+  state.profileAvatarRemoveRequested = !state.profileAvatarRemoveRequested && Boolean(state.me?.avatarUrl);
+  renderProfileForm();
 });
 
 elements.refreshChatsButton.addEventListener("click", async () => {
@@ -482,20 +574,31 @@ function render() {
     renderConversationList();
     renderConversationHeader();
     renderWorkspaceHeader();
+    renderDrawer();
     return;
   }
 
   elements.userCard.innerHTML = `
     <div class="user-shell">
-      <div class="user-avatar">${escapeHtml(getInitials(state.me.displayName || state.me.username))}</div>
+      ${renderAvatarMarkup(state.me.displayName || state.me.username, state.me.avatarUrl, "user-avatar")}
       <div class="user-meta">
         <strong class="user-name">${escapeHtml(state.me.displayName)}</strong>
-        <span class="muted">@${escapeHtml(state.me.username)}</span>
+        <div class="user-handle-line">
+          <span class="muted">@${escapeHtml(state.me.username)}</span>
+          ${state.me.telegramUsername ? `<span class="user-telegram-hint">(@${escapeHtml(state.me.telegramUsername)})</span>` : ""}
+        </div>
         <span class="muted">Tenant: ${escapeHtml(state.me.tenantKey)}</span>
       </div>
     </div>
-    <div class="user-bridge">${state.me.telegramLinked ? "Telegram connected" : "Telegram not linked"}</div>
+    <div class="user-card-footer">
+      <div class="user-bridge">${state.me.telegramLinked ? "Telegram connected" : "Telegram not linked"}</div>
+      <button type="button" class="ghost-button compact-button" data-open-profile>Профиль</button>
+    </div>
   `;
+  elements.userCard.querySelector("[data-open-profile]")?.addEventListener("click", () => {
+    toggleDrawer("profile");
+  });
+  hydrateProtectedImagePreviews(elements.userCard).catch(() => {});
   renderConversationList();
   renderConversationHeader();
   renderWorkspaceHeader();
@@ -555,9 +658,20 @@ function toggleDrawer(mode) {
   if (state.sidebarDrawerMode === "join") {
     window.setTimeout(() => elements.inviteCodeInput.focus(), 180);
   }
+
+  if (state.sidebarDrawerMode === "profile") {
+    prepareProfileForm();
+    window.setTimeout(() => elements.profileDisplayNameInput.focus(), 180);
+  }
 }
 
 function closeDrawer() {
+  if (state.sidebarDrawerMode === "profile") {
+    revokeProfileAvatarPreviewUrl();
+    state.profileAvatarRemoveRequested = false;
+    state.profileSaveInFlight = false;
+    elements.profileAvatarInput.value = "";
+  }
   state.sidebarDrawerMode = null;
   renderDrawer();
 }
@@ -565,12 +679,14 @@ function closeDrawer() {
 function renderDrawer() {
   const isCreate = state.sidebarDrawerMode === "create";
   const isJoin = state.sidebarDrawerMode === "join";
-  const isOpen = isCreate || isJoin;
+  const isProfile = state.sidebarDrawerMode === "profile";
+  const isOpen = isCreate || isJoin || isProfile;
 
   elements.sidebarDrawer.dataset.open = String(isOpen);
   elements.sidebarDrawer.setAttribute("aria-hidden", String(!isOpen));
   elements.drawerCreateView.classList.toggle("hidden", !isCreate);
   elements.drawerJoinView.classList.toggle("hidden", !isJoin);
+  elements.drawerProfileView.classList.toggle("hidden", !isProfile);
   elements.openCreateDrawerButton.classList.toggle("active", isCreate);
   elements.openJoinDrawerButton.classList.toggle("active", isJoin);
 
@@ -580,10 +696,86 @@ function renderDrawer() {
   } else if (isJoin) {
     elements.drawerEyebrow.textContent = "Invite flow";
     elements.drawerTitle.textContent = "Войти по коду";
+  } else if (isProfile) {
+    elements.drawerEyebrow.textContent = "Профиль";
+    elements.drawerTitle.textContent = "Настроить Hermes-профиль";
   } else {
     elements.drawerEyebrow.textContent = "Панель действий";
     elements.drawerTitle.textContent = "Выбери действие";
   }
+}
+
+function prepareProfileForm() {
+  if (!state.me) {
+    return;
+  }
+
+  revokeProfileAvatarPreviewUrl();
+  state.profileAvatarRemoveRequested = false;
+  state.profileSaveInFlight = false;
+  elements.profileAvatarInput.value = "";
+  elements.profileDisplayNameInput.value = state.me.displayName || "";
+  elements.profileUsernameInput.value = state.me.username || "";
+  renderProfileForm();
+}
+
+function renderProfileForm() {
+  if (!state.me) {
+    elements.profileAvatarPreview.innerHTML = "";
+    return;
+  }
+
+  const previewUrl = state.profileAvatarRemoveRequested ? null : state.profileAvatarPreviewUrl || state.me.avatarUrl;
+  const usesProtectedUrl = !state.profileAvatarPreviewUrl && Boolean(previewUrl);
+  const telegramHandle = state.me.telegramUsername ? `@${state.me.telegramUsername}` : "не привязан";
+
+  elements.profileTelegramHint.innerHTML = state.me.telegramUsername
+    ? `Telegram ник будет виден рядом с твоим Hermes-ником как <span class="user-telegram-hint">(${escapeHtml(telegramHandle)})</span>.`
+    : "Telegram ник пока не привязан к профилю.";
+
+  elements.clearProfileAvatarButton.disabled = state.profileSaveInFlight
+    || (!state.profileAvatarPreviewUrl && !state.profileAvatarRemoveRequested && !state.me.avatarUrl);
+  elements.profileDisplayNameInput.disabled = state.profileSaveInFlight;
+  elements.profileUsernameInput.disabled = state.profileSaveInFlight;
+  elements.profileAvatarInput.disabled = state.profileSaveInFlight;
+  elements.saveProfileButton.disabled = state.profileSaveInFlight;
+  elements.saveProfileButton.textContent = state.profileSaveInFlight ? "Сохраняем..." : "Сохранить профиль";
+  elements.clearProfileAvatarButton.textContent = state.profileAvatarRemoveRequested ? "Аватар уберется" : "Убрать аватар";
+
+  elements.profileAvatarPreview.innerHTML = `
+    ${renderAvatarMarkup(state.me.displayName || state.me.username, previewUrl, "user-avatar", { protectedSource: usesProtectedUrl })}
+    <div class="stack gap-sm">
+      <strong>${escapeHtml(state.me.displayName)}</strong>
+      <span class="muted">@${escapeHtml(state.me.username)}</span>
+    </div>
+  `;
+
+  if (usesProtectedUrl) {
+    hydrateProtectedImagePreviews(elements.profileAvatarPreview).catch(() => {});
+  }
+}
+
+function revokeProfileAvatarPreviewUrl() {
+  if (state.profileAvatarPreviewUrl) {
+    URL.revokeObjectURL(state.profileAvatarPreviewUrl);
+    state.profileAvatarPreviewUrl = null;
+  }
+}
+
+function renderAvatarMarkup(label, avatarUrl, className, options = {}) {
+  const protectedSource = options.protectedSource ?? Boolean(avatarUrl);
+  const imageMarkup = avatarUrl
+    ? `<img class="avatar-image ${protectedSource ? "hidden" : ""}" ${protectedSource
+      ? `data-protected-src="${escapeHtml(avatarUrl)}"`
+      : `src="${escapeHtml(avatarUrl)}"`} alt="${escapeHtml(label)}">`
+    : "";
+
+  return `
+    <div class="${className}">
+      ${imageMarkup}
+      <span class="avatar-fallback ${avatarUrl && !protectedSource ? "hidden" : ""}">${escapeHtml(getInitials(label))}</span>
+    </div>
+  `;
 }
 
 function renderWorkspaceHeader() {
@@ -651,11 +843,11 @@ function renderMessages() {
   elements.messagesList.innerHTML = state.currentMessages
     .map((message) => {
       const mine = message.authorUserId && state.me && message.authorUserId === state.me.id;
-      const author = message.authorDisplayName || "Unknown";
+      const author = mine && state.me ? state.me.displayName : message.authorDisplayName || "Unknown";
       const transport = message.sourceTransport === "INTERNAL" ? "Hermes" : message.sourceTransport;
       return `
         <div class="message-row ${mine ? "mine" : ""}">
-          <div class="message-avatar">${escapeHtml(getInitials(author))}</div>
+          ${renderAvatarMarkup(author, mine ? state.me.avatarUrl : null, "message-avatar")}
           <article class="message-card ${mine ? "mine" : ""}">
             <div class="message-topline">
               <div class="message-author">${escapeHtml(author)}</div>
@@ -671,6 +863,7 @@ function renderMessages() {
     .join("");
 
   bindAttachmentActions();
+  hydrateProtectedImagePreviews(elements.messagesList).catch(() => {});
   hydrateAttachmentPreviews();
   elements.messagesList.scrollTop = elements.messagesList.scrollHeight;
 }
@@ -687,21 +880,30 @@ function renderMembers(members) {
   }
 
   elements.membersList.innerHTML = members
-    .map(
-      (member) => `
+    .map((member) => {
+      const mine = state.me && member.userId === state.me.id;
+      const displayName = mine && state.me ? state.me.displayName : member.displayName;
+      const username = mine && state.me ? state.me.username : member.username;
+      const avatarUrl = mine && state.me ? state.me.avatarUrl : null;
+      const telegramHint = mine && state.me?.telegramUsername
+        ? `<span class="user-telegram-hint">(@${escapeHtml(state.me.telegramUsername)})</span>`
+        : "";
+
+      return `
         <article class="member-card">
           <div class="member-shell">
-            <div class="member-avatar">${escapeHtml(getInitials(member.displayName || member.username))}</div>
+            ${renderAvatarMarkup(displayName || username, avatarUrl, "member-avatar")}
             <div>
-              <strong class="member-name">${escapeHtml(member.displayName)}</strong>
-              <span class="muted">@${escapeHtml(member.username)}</span><br>
+              <strong class="member-name">${escapeHtml(displayName)}</strong>
+              <span class="muted">@${escapeHtml(username)}</span>${telegramHint}<br>
               <span class="member-role">${escapeHtml(member.role)}</span>
             </div>
           </div>
         </article>
-      `
-    )
+      `;
+    })
     .join("");
+  hydrateProtectedImagePreviews(elements.membersList).catch(() => {});
 }
 
 function startPolling() {
@@ -1041,7 +1243,7 @@ async function hydrateAttachmentPreview(mediaElement) {
   }
 
   try {
-    const objectUrl = await ensureAttachmentObjectUrl(
+    const objectUrl = await ensureProtectedObjectUrl(
       mediaElement.dataset.attachmentPreviewId,
       mediaElement.dataset.contentUrl
     );
@@ -1063,8 +1265,28 @@ async function hydrateAttachmentPreview(mediaElement) {
   }
 }
 
-async function ensureAttachmentObjectUrl(attachmentId, contentUrl) {
-  const cacheKey = `${attachmentId}:${contentUrl}`;
+async function hydrateProtectedImagePreviews(rootElement = document) {
+  const images = Array.from(rootElement.querySelectorAll("[data-protected-src]"));
+  await Promise.all(
+    images.map(async (image) => {
+      try {
+        const objectUrl = await ensureProtectedObjectUrl(
+          image.dataset.protectedKey || image.dataset.protectedSrc,
+          image.dataset.protectedSrc
+        );
+        image.src = objectUrl;
+        image.classList.remove("hidden");
+        image.parentElement?.querySelector(".avatar-fallback")?.classList.add("hidden");
+      } catch (error) {
+        image.remove();
+        image.parentElement?.querySelector(".avatar-fallback")?.classList.remove("hidden");
+      }
+    })
+  );
+}
+
+async function ensureProtectedObjectUrl(resourceKey, contentUrl) {
+  const cacheKey = `${resourceKey}:${contentUrl}`;
   if (state.attachmentObjectUrls.has(cacheKey)) {
     return state.attachmentObjectUrls.get(cacheKey);
   }

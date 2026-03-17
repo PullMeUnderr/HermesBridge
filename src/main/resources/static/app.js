@@ -1034,8 +1034,19 @@ function renderConversationHeader() {
   elements.mobileBackButton.disabled = !hasSelection;
   elements.toggleMembersButton.disabled = !hasSelection;
   elements.toggleMembersButton.classList.toggle("hidden", !hasSelection);
-  elements.toggleMembersButton.textContent = membersPanelOpen ? "Скрыть состав" : "Состав";
-  elements.createInviteButton.textContent = isMobileViewport() ? "Инвайт" : "Создать инвайт";
+  const mobileViewport = isMobileViewport();
+  const membersActionLabel = membersPanelOpen ? "Скрыть состав" : "Состав";
+  elements.toggleMembersButton.textContent = mobileViewport ? "☰" : membersActionLabel;
+  elements.toggleMembersButton.setAttribute("aria-label", membersActionLabel);
+  elements.toggleMembersButton.title = membersActionLabel;
+  const inviteActionLabel = "Создать инвайт";
+  elements.createInviteButton.textContent = mobileViewport ? "＋" : inviteActionLabel;
+  elements.createInviteButton.setAttribute("aria-label", inviteActionLabel);
+  elements.createInviteButton.title = inviteActionLabel;
+  const refreshActionLabel = "Обновить";
+  elements.refreshMessagesButton.textContent = mobileViewport ? "↻" : refreshActionLabel;
+  elements.refreshMessagesButton.setAttribute("aria-label", refreshActionLabel);
+  elements.refreshMessagesButton.title = refreshActionLabel;
   renderComposerState();
   renderReplyComposer();
 
@@ -2212,6 +2223,7 @@ function renderComposerState() {
   const canSendVideoNote = canSendSelectedFileAsVideoNote();
   const videoNoteSupportIssue = getVideoNoteRecordingSupportIssue();
   const voiceSupportIssue = getVoiceRecordingSupportIssue();
+  const mobileViewport = isMobileViewport();
   elements.messageInput.disabled = disabled;
   elements.messageAttachmentsInput.disabled = disabled;
   elements.sendAsVideoNoteButton.classList.toggle("hidden", !canSendVideoNote);
@@ -2238,7 +2250,10 @@ function renderComposerState() {
   elements.recordVoiceButton.classList.toggle("unsupported", Boolean(voiceSupportIssue));
   elements.recordVoiceButton.title = voiceSupportIssue || "";
   elements.clearRecordedVoiceButton.textContent = state.isRecordingVoice ? "Отмена" : "Удалить";
-  elements.sendMessageButton.textContent = state.messageSubmitInFlight ? "Отправляем..." : "Отправить";
+  elements.sendMessageButton.textContent = state.messageSubmitInFlight
+    ? (mobileViewport ? "…" : "Отправляем...")
+    : (mobileViewport ? "➤" : "Отправить");
+  elements.sendMessageButton.title = "Отправить";
   elements.switchVideoNoteCameraButton.disabled =
     !state.isRecordingVideoNote || state.videoNoteCameraSwitchInFlight || !canSwitchVideoNoteCamera();
   renderVideoNoteRecordingPreview();

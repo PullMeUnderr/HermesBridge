@@ -1809,9 +1809,10 @@ button:disabled {
     }
 
     .conversation-header {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr);
-        padding: 10px 12px 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 10px 6px;
         gap: 8px;
     }
 
@@ -1823,77 +1824,68 @@ button:disabled {
     }
 
     .conversation-header-main {
-        width: 100%;
+        flex: 1 1 auto;
+        min-width: 0;
         display: grid;
-        grid-template-columns: auto minmax(0, 1fr);
-        align-items: start;
+        grid-template-columns: 34px minmax(0, 1fr);
+        align-items: center;
         gap: 8px;
     }
 
+    .conversation-header-main .mobile-only.icon-button {
+        width: 34px;
+        height: 34px;
+        min-width: 34px;
+        min-height: 34px;
+        border-radius: 999px;
+        font-size: 1rem;
+    }
+
     .conversation-header-copy {
-        flex: 1;
+        min-width: 0;
         gap: 1px;
     }
 
     .conversation-header h2 {
-        margin-top: 2px;
-        font-size: clamp(1.12rem, 5vw, 1.46rem);
+        margin-top: 0;
+        font-size: clamp(1.02rem, 4.2vw, 1.18rem);
         max-width: none;
-        line-height: 0.98;
+        line-height: 1.02;
+        letter-spacing: -0.02em;
     }
 
     .conversation-topline {
-        gap: 6px;
-        flex-wrap: nowrap;
-        min-width: 0;
-        overflow: hidden;
-    }
-
-    .conversation-topline .role-pill {
-        flex: 0 0 auto;
-        padding: 4px 8px;
-        font-size: 0.72rem;
-    }
-
-    .conversation-online {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        font-size: 0.72rem;
+        display: none;
     }
 
     .conversation-meta,
     #conversationMeta {
-        font-size: 0.74rem;
-        line-height: 1.18;
+        font-size: 0.66rem;
+        line-height: 1.12;
     }
 
     .header-actions {
-        width: 100%;
+        width: auto;
         display: flex;
         flex-wrap: nowrap;
-        gap: 6px;
-        justify-content: flex-start;
+        gap: 4px;
+        justify-content: flex-end;
         align-items: center;
-        overflow-x: auto;
-        padding-bottom: 2px;
-        scrollbar-width: none;
-    }
-
-    .header-actions::-webkit-scrollbar {
-        display: none;
     }
 
     .header-actions .secondary-button,
     .header-actions .ghost-button {
-        min-height: 34px;
-        width: auto;
+        min-height: 32px;
+        width: 32px;
+        min-width: 32px;
         flex: 0 0 auto;
-        padding: 0 9px;
-        font-size: 0.84rem;
+        padding: 0;
+        font-size: 0.96rem;
+        line-height: 1;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        border-radius: 999px;
     }
 
     .chat-columns {
@@ -1903,29 +1895,34 @@ button:disabled {
     }
 
     .messages-list {
-        padding: 10px;
-        gap: 8px;
+        padding: 8px 8px 10px;
+        gap: 6px;
     }
 
     .message-row {
-        gap: 6px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0;
     }
 
-    .message-avatar {
-        width: 30px;
-        height: 30px;
-        font-size: 0.72rem;
+    .message-row.mine {
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .message-card {
-        min-width: min(124px, 100%);
-        max-width: calc(100% - 4px);
-        padding: 9px 10px;
-        gap: 5px;
+        min-width: 0;
+        max-width: min(84%, 360px);
+        padding: 7px 9px;
+        gap: 4px;
+        border-radius: 16px;
+        box-shadow: none;
+    }
+
+    .message-row .message-avatar {
+        display: none;
     }
 
     .message-topline {
-        gap: 6px;
+        gap: 5px;
     }
 
     .message-actions {
@@ -1935,18 +1932,28 @@ button:disabled {
     .message-author {
         min-width: 0;
         overflow-wrap: anywhere;
-        font-size: 0.75rem;
+        font-size: 0.7rem;
+    }
+
+    .message-row.mine .message-author {
+        display: none;
+    }
+
+    .message-row.mine .message-topline {
+        justify-content: flex-end;
     }
 
     .transport-pill {
         flex: 0 0 auto;
-        padding: 3px 7px;
-        font-size: 0.66rem;
+        padding: 2px 5px;
+        font-size: 0.58rem;
+        border-radius: 999px;
     }
 
     .attachment-card {
-        gap: 7px;
-        padding: 8px;
+        gap: 6px;
+        padding: 6px;
+        border-radius: 12px;
     }
 
     .attachment-card-photo,
@@ -1959,48 +1966,68 @@ button:disabled {
 
     .attachment-image {
         max-width: none;
-        max-height: min(48vw, 220px);
+        max-height: min(54vw, 240px);
         border-radius: 10px;
     }
 
     .attachment-video {
         max-width: none;
-        max-height: min(52vw, 240px);
+        max-height: min(58vw, 260px);
     }
 
     .attachment-caption {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
         align-items: end;
-        gap: 8px;
-        font-size: 0.76rem;
+        gap: 6px;
+        font-size: 0.7rem;
     }
 
     .attachment-link {
-        padding: 7px 9px;
+        padding: 6px 8px;
         white-space: nowrap;
-        font-size: 0.74rem;
+        font-size: 0.68rem;
+    }
+
+    .attachment-card-photo {
+        padding: 0;
+        background: transparent;
+        border-color: transparent;
+    }
+
+    .attachment-card-photo .attachment-caption {
+        padding: 0 2px 2px;
+        grid-template-columns: auto;
+        justify-items: end;
+    }
+
+    .attachment-card-photo .attachment-caption span {
+        display: none;
     }
 
     .message-form {
         position: sticky;
         bottom: 0;
         z-index: 2;
-        padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
-        gap: 8px;
+        padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+        gap: 6px;
+        background: rgba(10, 10, 10, 0.96);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
     }
 
     .message-composer-meta {
-        align-items: flex-start;
+        align-items: center;
+        gap: 6px;
     }
 
     .message-composer-tools {
-        width: 100%;
+        width: auto;
         flex-wrap: nowrap;
         overflow-x: auto;
-        padding-bottom: 4px;
+        padding-bottom: 0;
         scrollbar-width: none;
-        gap: 8px;
+        gap: 6px;
     }
 
     .message-composer-tools::-webkit-scrollbar {
@@ -2012,14 +2039,14 @@ button:disabled {
     .video-note-record-button,
     .message-composer-tools .ghost-button {
         flex: 0 0 auto;
-        width: 42px;
-        min-width: 42px;
-        height: 42px;
-        min-height: 42px;
+        width: 36px;
+        min-width: 36px;
+        height: 36px;
+        min-height: 36px;
         padding: 0;
         justify-content: center;
         gap: 0;
-        border-radius: 10px;
+        border-radius: 999px;
     }
 
     .attachment-picker .tool-button-label,
@@ -2033,8 +2060,8 @@ button:disabled {
     .voice-record-button .tool-button-icon svg,
     .video-note-record-button .tool-button-icon svg,
     .message-composer-tools .ghost-button .tool-button-icon svg {
-        width: 18px;
-        height: 18px;
+        width: 16px;
+        height: 16px;
     }
 
     .video-note-recording-preview {
@@ -2071,28 +2098,57 @@ button:disabled {
     }
 
     .message-meta {
-        font-size: 0.7rem;
+        font-size: 0.64rem;
     }
 
     .message-reply-button {
-        min-width: 24px;
-        width: 24px;
-        height: 24px;
-        font-size: 0.76rem;
+        min-width: 20px;
+        width: 20px;
+        height: 20px;
+        font-size: 0.66rem;
+        border-radius: 999px;
     }
 
     .message-body {
-        font-size: 0.92rem;
-        line-height: 1.34;
+        font-size: 0.88rem;
+        line-height: 1.28;
     }
 
     .message-form textarea {
-        min-height: 56px;
-        padding: 12px 13px;
+        min-height: 44px;
+        max-height: 116px;
+        padding: 11px 13px;
+        border-radius: 22px;
+        line-height: 1.28;
     }
 
     .composer-hint.is-empty-mobile {
         display: none;
+    }
+
+    #attachmentSelectionLabel {
+        flex: 1 1 auto;
+        min-width: 0;
+        font-size: 0.68rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .message-form-actions {
+        justify-content: flex-end;
+        margin-top: -2px;
+    }
+
+    .message-form-actions .primary-button {
+        width: 40px;
+        min-width: 40px;
+        min-height: 40px;
+        padding: 0;
+        border-radius: 999px;
+        font-size: 0.95rem;
+        line-height: 1;
+        box-shadow: 0 8px 20px rgba(30, 215, 96, 0.18);
     }
 
     .members-panel {

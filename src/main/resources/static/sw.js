@@ -1,11 +1,11 @@
-const CACHE_VERSION = "hermes-shell-v14";
+const CACHE_VERSION = "hermes-shell-v15";
 const SHELL_CACHE = `hermes-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `hermes-runtime-${CACHE_VERSION}`;
 const SHELL_ASSETS = [
   "/",
   "/index.html",
-  "/app.css?v=20260317-mobile-recording-1",
-  "/app.js?v=20260317-mobile-recording-1",
+  "/app.css?v=20260317-mobile-telegram-1",
+  "/app.js?v=20260317-mobile-telegram-1",
   "/manifest.webmanifest",
   "/icons/hermes-icon.svg",
   "/icons/hermes-192.png",

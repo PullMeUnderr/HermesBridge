@@ -1,0 +1,14 @@
+[Unit]
+Description=HermesBridge HTTPS quick tunnel
+After=network-online.target hermesbridge.service
+Wants=network-online.target
+Requires=hermesbridge.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hermesbridge-quick-tunnel.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

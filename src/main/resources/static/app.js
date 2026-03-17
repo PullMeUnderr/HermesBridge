@@ -42,11 +42,13 @@ const state = {
   metricFitFrame: null,
   mobileScreen: "sidebar",
   mobileMembersOpen: false,
+  desktopMembersOpen: false,
 };
 
 const elements = {
   loginView: document.getElementById("loginView"),
   appView: document.getElementById("appView"),
+  desktopOverlay: document.getElementById("desktopOverlay"),
   loginForm: document.getElementById("loginForm"),
   tokenInput: document.getElementById("tokenInput"),
   userCard: document.getElementById("userCard"),
@@ -147,6 +149,7 @@ elements.logoutButton.addEventListener("click", () => {
   state.videoNoteTargetConversationId = null;
   state.mobileScreen = "sidebar";
   state.mobileMembersOpen = false;
+  state.desktopMembersOpen = false;
   revokeProfileAvatarPreviewUrl();
   elements.profileAvatarInput.value = "";
   cancelVideoNoteRecording(true);
@@ -154,6 +157,12 @@ elements.logoutButton.addEventListener("click", () => {
   resetAttachmentObjectUrls();
   stopPolling();
   render();
+});
+
+elements.desktopOverlay.addEventListener("click", () => {
+  state.desktopMembersOpen = false;
+  syncMobileLayout();
+  renderConversationHeader();
 });
 
 elements.openCreateDrawerButton.addEventListener("click", () => {
@@ -174,7 +183,12 @@ elements.toggleMembersButton.addEventListener("click", () => {
   if (!state.selectedConversationId) {
     return;
   }
-  state.mobileMembersOpen = !state.mobileMembersOpen;
+
+  if (isMobileViewport()) {
+    state.mobileMembersOpen = !state.mobileMembersOpen;
+  } else {
+    state.desktopMembersOpen = !state.desktopMembersOpen;
+  }
   syncMobileLayout();
   renderConversationHeader();
 });
@@ -648,6 +662,7 @@ function selectConversation(conversationId) {
   state.currentMembers = [];
   state.currentMembersSignature = "";
   state.mobileMembersOpen = false;
+  state.desktopMembersOpen = false;
   if (isMobileViewport()) {
     state.mobileScreen = "conversation";
   }
@@ -662,6 +677,8 @@ function selectConversation(conversationId) {
 
 function render() {
   const loggedIn = Boolean(state.me && state.token);
+  document.body.classList.toggle("app-active", loggedIn);
+  elements.appView.dataset.hasSelection = "false";
   elements.loginView.classList.toggle("hidden", loggedIn);
   elements.appView.classList.toggle("hidden", !loggedIn);
   elements.tokenInput.value = state.token;
@@ -954,6 +971,8 @@ function renderConversationHeader() {
   );
 
   const hasSelection = Boolean(selectedConversation);
+  const membersPanelOpen = isMobileViewport() ? state.mobileMembersOpen : state.desktopMembersOpen;
+  elements.appView.dataset.hasSelection = String(hasSelection);
   elements.emptyState.classList.toggle("hidden", hasSelection);
   elements.conversationView.classList.toggle("hidden", !hasSelection);
   elements.createInviteButton.disabled = !hasSelection;
@@ -961,7 +980,7 @@ function renderConversationHeader() {
   elements.mobileBackButton.disabled = !hasSelection;
   elements.toggleMembersButton.disabled = !hasSelection;
   elements.toggleMembersButton.classList.toggle("hidden", !hasSelection);
-  elements.toggleMembersButton.textContent = state.mobileMembersOpen ? "Закрыть" : "Состав";
+  elements.toggleMembersButton.textContent = membersPanelOpen ? "Скрыть состав" : "Состав";
   elements.createInviteButton.textContent = isMobileViewport() ? "Инвайт" : "Создать инвайт";
   renderComposerState();
 
@@ -1013,6 +1032,8 @@ function syncMobileLayout() {
   if (!loggedIn) {
     elements.appView.dataset.mobileScreen = "auth";
     elements.appView.dataset.mobileMembersOpen = "false";
+    elements.appView.dataset.desktopMembersOpen = "false";
+    elements.desktopOverlay.classList.add("hidden");
     return;
   }
 
@@ -1028,6 +1049,26 @@ function syncMobileLayout() {
 
   elements.appView.dataset.mobileScreen = state.mobileScreen;
   elements.appView.dataset.mobileMembersOpen = String(Boolean(state.mobileMembersOpen && isMobileViewport()));
+  syncDesktopDrawers();
+}
+
+function syncDesktopDrawers() {
+  const desktop = !isMobileViewport();
+  const hasSelection = Boolean(state.selectedConversationId);
+
+  if (!desktop) {
+    state.desktopMembersOpen = false;
+  }
+
+  const membersOpen = desktop && hasSelection && state.desktopMembersOpen;
+  const overlayOpen = membersOpen;
+
+  elements.appView.dataset.desktopMembersOpen = String(membersOpen);
+  elements.desktopOverlay.classList.toggle("hidden", !overlayOpen);
+  elements.toggleMembersButton.setAttribute(
+    "aria-expanded",
+    String(desktop ? membersOpen : Boolean(state.mobileMembersOpen && hasSelection))
+  );
 }
 
 function renderMessages() {

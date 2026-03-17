@@ -1,0 +1,15 @@
+[Unit]
+Description=HermesBridge HTTPS ngrok tunnel
+After=network-online.target hermesbridge.service
+Wants=network-online.target
+Requires=hermesbridge.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/hermesbridge/ngrok.env
+ExecStart=/usr/local/bin/hermesbridge-ngrok.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

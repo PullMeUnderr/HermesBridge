@@ -20,6 +20,8 @@
 - `install-vps.sh` — ставит `OpenJDK 21` и `Postgres`, создает пользователя и каталоги
 - `hermesbridge.env.example` — шаблон env-файла
 - `hermesbridge.service` — systemd unit
+- `hermesbridge-ngrok.service` — optional ngrok HTTPS tunnel
+- `hermesbridge-ngrok.sh` — helper script for ngrok
 - `deploy-vps.sh` — сборка и выкладка jar по SSH
 - `hermesbridge-postgres-backup.sh` — backup локальной базы
 - `hermesbridge-postgres-backup.service` — systemd service для backup
@@ -39,6 +41,24 @@
 5. На сервере:
    - проверить `systemctl status hermesbridge`
    - открыть `http://SERVER_IP:8080`
+
+## Временный HTTPS через ngrok
+
+Если нужен стабильный dev-domain на `ngrok`, добавляем:
+
+- `/usr/local/bin/hermesbridge-ngrok.sh`
+- `/etc/systemd/system/hermesbridge-ngrok.service`
+- `/etc/hermesbridge/ngrok.env`
+
+Пример `/etc/hermesbridge/ngrok.env`:
+
+```bash
+NGROK_AUTHTOKEN=replace_me
+NGROK_URL=
+```
+
+Для free-плана `NGROK_URL` можно оставить пустым: agent возьмет assigned dev domain,
+привязанный к authtoken. Если у тебя есть конкретный reserved/custom domain, впиши его туда.
 
 ## PostgreSQL backup
 

@@ -31,10 +31,17 @@ const state = {
   discardVideoNoteOnStop: false,
   videoNoteRecordingStartedAt: null,
   videoNoteRecordingTimerHandle: null,
+  videoNoteRecordingLocked: false,
+  videoNotePointerStartY: null,
+  videoNoteCameraFacingMode: "user",
+  videoNoteCameraSwitchInFlight: false,
   profileAvatarPreviewUrl: null,
   profileAvatarRemoveRequested: false,
   profileSaveInFlight: false,
   sendAsVideoNote: false,
+  metricFitFrame: null,
+  mobileScreen: "sidebar",
+  mobileMembersOpen: false,
 };
 
 const elements = {
@@ -69,6 +76,9 @@ const elements = {
   conversationList: document.getElementById("conversationList"),
   emptyState: document.getElementById("emptyState"),
   conversationView: document.getElementById("conversationView"),
+  mobileBackButton: document.getElementById("mobileBackButton"),
+  toggleMembersButton: document.getElementById("toggleMembersButton"),
+  closeMembersPanelButton: document.getElementById("closeMembersPanelButton"),
   conversationTitle: document.getElementById("conversationTitle"),
   conversationRole: document.getElementById("conversationRole"),
   conversationMeta: document.getElementById("conversationMeta"),
@@ -98,6 +108,7 @@ const elements = {
   videoNoteRecordingMeta: document.getElementById("videoNoteRecordingMeta"),
   videoNoteRecordingTimer: document.getElementById("videoNoteRecordingTimer"),
   videoNoteRecordingVideo: document.getElementById("videoNoteRecordingVideo"),
+  switchVideoNoteCameraButton: document.getElementById("switchVideoNoteCameraButton"),
   sendMessageButton: document.getElementById("sendMessageButton"),
   toast: document.getElementById("toast"),
 };
@@ -108,7 +119,7 @@ elements.loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const token = elements.tokenInput.value.trim();
   if (!token) {
-    showToast("Вставь bearer token от бота.", "error");
+    showToast("Вставь токен от бота.", "error");
     return;
   }
   state.token = token;
@@ -134,6 +145,8 @@ elements.logoutButton.addEventListener("click", () => {
   state.profileAvatarRemoveRequested = false;
   state.sendAsVideoNote = false;
   state.videoNoteTargetConversationId = null;
+  state.mobileScreen = "sidebar";
+  state.mobileMembersOpen = false;
   revokeProfileAvatarPreviewUrl();
   elements.profileAvatarInput.value = "";
   cancelVideoNoteRecording(true);
@@ -149,6 +162,27 @@ elements.openCreateDrawerButton.addEventListener("click", () => {
 
 elements.openJoinDrawerButton.addEventListener("click", () => {
   toggleDrawer("join");
+});
+
+elements.mobileBackButton.addEventListener("click", () => {
+  state.mobileScreen = "sidebar";
+  state.mobileMembersOpen = false;
+  syncMobileLayout();
+});
+
+elements.toggleMembersButton.addEventListener("click", () => {
+  if (!state.selectedConversationId) {
+    return;
+  }
+  state.mobileMembersOpen = !state.mobileMembersOpen;
+  syncMobileLayout();
+  renderConversationHeader();
+});
+
+elements.closeMembersPanelButton.addEventListener("click", () => {
+  state.mobileMembersOpen = false;
+  syncMobileLayout();
+  renderConversationHeader();
 });
 
 elements.closeDrawerButton.addEventListener("click", () => {
@@ -182,7 +216,7 @@ elements.joinInviteForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const inviteCode = elements.inviteCodeInput.value.trim();
   if (!inviteCode) {
-    showToast("Вставь invite-код.", "error");
+    showToast("Вставь код приглашения.", "error");
     return;
   }
 
@@ -300,7 +334,7 @@ elements.createInviteButton.addEventListener("click", async () => {
         // Best effort only.
       }
     }
-    showToast(`Invite создан: ${invite.inviteCode}`, "success", 6500);
+    showToast(`Инвайт готов: ${invite.inviteCode}`, "success", 6500);
   } catch (error) {
     showToast(error.message, "error");
   }
@@ -323,17 +357,52 @@ elements.sendAsVideoNoteButton.addEventListener("click", () => {
 
 elements.recordVideoNoteButton.addEventListener("pointerdown", async (event) => {
   event.preventDefault();
+  if (state.isRecordingVideoNote && state.videoNoteRecordingLocked) {
+    stopVideoNoteRecording();
+    return;
+  }
   if (state.isRecordingVideoNote || state.messageSubmitInFlight) {
     return;
   }
 
   const started = await startVideoNoteRecording(event.pointerId);
   if (started) {
+    state.videoNotePointerStartY = event.clientY;
     elements.recordVideoNoteButton.setPointerCapture?.(event.pointerId);
   }
 });
 
+elements.recordVideoNoteButton.addEventListener("pointermove", (event) => {
+  if (
+    !state.isRecordingVideoNote
+    || state.videoNoteRecordingLocked
+    || state.activeVideoNotePointerId !== event.pointerId
+    || state.videoNotePointerStartY == null
+  ) {
+    return;
+  }
+
+  const deltaY = state.videoNotePointerStartY - event.clientY;
+  if (deltaY < 72) {
+    return;
+  }
+
+  state.videoNoteRecordingLocked = true;
+  state.activeVideoNotePointerId = null;
+  state.videoNotePointerStartY = null;
+  try {
+    elements.recordVideoNoteButton.releasePointerCapture?.(event.pointerId);
+  } catch (error) {
+    // Best effort only.
+  }
+  renderSelectedAttachments();
+  renderComposerState();
+});
+
 elements.recordVideoNoteButton.addEventListener("pointerup", (event) => {
+  if (state.videoNoteRecordingLocked) {
+    return;
+  }
   if (state.activeVideoNotePointerId !== event.pointerId) {
     return;
   }
@@ -341,6 +410,9 @@ elements.recordVideoNoteButton.addEventListener("pointerup", (event) => {
 });
 
 elements.recordVideoNoteButton.addEventListener("pointercancel", (event) => {
+  if (state.videoNoteRecordingLocked) {
+    return;
+  }
   if (state.activeVideoNotePointerId !== event.pointerId) {
     return;
   }
@@ -348,6 +420,9 @@ elements.recordVideoNoteButton.addEventListener("pointercancel", (event) => {
 });
 
 elements.recordVideoNoteButton.addEventListener("lostpointercapture", (event) => {
+  if (state.videoNoteRecordingLocked) {
+    return;
+  }
   if (state.activeVideoNotePointerId !== event.pointerId) {
     return;
   }
@@ -361,6 +436,10 @@ elements.recordVideoNoteButton.addEventListener("contextmenu", (event) => {
   if (state.isRecordingVideoNote) {
     event.preventDefault();
   }
+});
+
+elements.switchVideoNoteCameraButton.addEventListener("click", async () => {
+  await switchVideoNoteCamera();
 });
 
 elements.recordVoiceButton.addEventListener("click", async () => {
@@ -458,7 +537,14 @@ async function bootstrapSession() {
     render();
     startPolling();
     if (state.conversations.length > 0) {
-      selectConversation(state.selectedConversationId || state.conversations[0].id);
+      if (state.selectedConversationId) {
+        selectConversation(state.selectedConversationId);
+      } else if (!isMobileViewport()) {
+        selectConversation(state.conversations[0].id);
+      } else {
+        state.mobileScreen = "sidebar";
+        syncMobileLayout();
+      }
     }
   } catch (error) {
     cancelVideoNoteRecording(true);
@@ -469,6 +555,8 @@ async function bootstrapSession() {
     state.conversationsSignature = "";
     state.currentMessagesSignature = "";
     state.currentMembersSignature = "";
+    state.mobileScreen = "sidebar";
+    state.mobileMembersOpen = false;
     render();
     showToast(error.message, "error");
   }
@@ -491,6 +579,8 @@ async function loadConversations() {
     state.currentMembers = [];
     state.currentMembersSignature = "";
     resetAttachmentObjectUrls();
+    state.mobileScreen = "sidebar";
+    state.mobileMembersOpen = false;
   }
 
   const conversationsChanged = conversationsSignature !== state.conversationsSignature;
@@ -503,6 +593,7 @@ async function loadConversations() {
   renderConversationList();
   renderWorkspaceHeader();
   renderConversationHeader();
+  syncMobileLayout();
 }
 
 async function loadMessages(conversationId) {
@@ -556,10 +647,16 @@ function selectConversation(conversationId) {
   state.currentMessagesSignature = "";
   state.currentMembers = [];
   state.currentMembersSignature = "";
+  state.mobileMembersOpen = false;
+  if (isMobileViewport()) {
+    state.mobileScreen = "conversation";
+  }
   resetAttachmentObjectUrls();
+  closeDrawer();
   renderConversationList();
   renderConversationHeader();
   renderWorkspaceHeader();
+  syncMobileLayout();
   loadMessages(conversationId).catch((error) => showToast(error.message, "error"));
 }
 
@@ -575,6 +672,7 @@ function render() {
     renderConversationHeader();
     renderWorkspaceHeader();
     renderDrawer();
+    syncMobileLayout();
     return;
   }
 
@@ -591,7 +689,7 @@ function render() {
       </div>
     </div>
     <div class="user-card-footer">
-      <div class="user-bridge">${state.me.telegramLinked ? "Telegram connected" : "Telegram not linked"}</div>
+      <div class="user-bridge">${state.me.telegramLinked ? "Telegram подключен" : "Telegram не подключен"}</div>
       <button type="button" class="ghost-button compact-button" data-open-profile>Профиль</button>
     </div>
   `;
@@ -603,6 +701,7 @@ function render() {
   renderConversationHeader();
   renderWorkspaceHeader();
   renderDrawer();
+  syncMobileLayout();
 }
 
 function renderConversationList() {
@@ -615,7 +714,7 @@ function renderConversationList() {
     elements.conversationList.innerHTML = `
       <div class="empty-inline">
         <strong>Чатов пока нет.</strong>
-        <p class="muted">Создай первый чат слева или зайди по invite-коду.</p>
+        <p class="muted">Создай чат или войди по коду.</p>
       </div>
     `;
     return;
@@ -694,7 +793,7 @@ function renderDrawer() {
     elements.drawerEyebrow.textContent = "Новый чат";
     elements.drawerTitle.textContent = "Создать пространство";
   } else if (isJoin) {
-    elements.drawerEyebrow.textContent = "Invite flow";
+    elements.drawerEyebrow.textContent = "Доступ";
     elements.drawerTitle.textContent = "Войти по коду";
   } else if (isProfile) {
     elements.drawerEyebrow.textContent = "Профиль";
@@ -780,12 +879,13 @@ function renderAvatarMarkup(label, avatarUrl, className, options = {}) {
 
 function renderWorkspaceHeader() {
   if (!state.me) {
-    elements.workspaceTitle.textContent = "Hermes workspace";
+    elements.workspaceTitle.textContent = "Обзор Hermes";
     elements.workspaceSummary.textContent =
-      "Создавай чаты, подключай участников и постепенно превращай bridge в самостоятельный клиент.";
+      "Чаты, доступ и синхронизация в одном интерфейсе.";
     elements.conversationCountValue.textContent = "0";
     elements.userHandleValue.textContent = "-";
     elements.syncStateValue.textContent = "Оффлайн";
+    queueMetricValueFit();
     return;
   }
 
@@ -795,15 +895,57 @@ function renderWorkspaceHeader() {
 
   elements.workspaceTitle.textContent = selectedConversation
     ? selectedConversation.title
-    : "Hermes workspace";
+    : "Обзор Hermes";
   elements.workspaceSummary.textContent = selectedConversation
-    ? `Открыт чат #${selectedConversation.id}. Здесь сходятся внутренние сообщения, инвайты и Telegram bridge.`
-    : "Выбери чат слева или создай новый. Эта панель станет основой будущего клиента Hermes.";
+    ? `Чат #${selectedConversation.id} открыт. Сообщения, участники и Telegram sync собраны здесь.`
+    : "Выбери чат слева или создай новый.";
   elements.conversationCountValue.textContent = String(state.conversations.length);
   elements.userHandleValue.textContent = `@${state.me.username}`;
   elements.syncStateValue.textContent = state.lastSyncAt
     ? `Обновлено ${formatClock(state.lastSyncAt)}`
     : "Ожидает синк";
+  queueMetricValueFit();
+}
+
+function queueMetricValueFit() {
+  if (state.metricFitFrame) {
+    window.cancelAnimationFrame(state.metricFitFrame);
+  }
+
+  state.metricFitFrame = window.requestAnimationFrame(() => {
+    state.metricFitFrame = null;
+    fitMetricValue(elements.userHandleValue, { minRem: 0.84, maxRem: 1.46 });
+    fitMetricValue(elements.syncStateValue, { minRem: 0.82, maxRem: 1.38 });
+  });
+}
+
+function fitMetricValue(element, options = {}) {
+  if (!element || !element.isConnected || element.clientWidth === 0) {
+    return;
+  }
+
+  const minRem = options.minRem ?? 0.82;
+  const maxRem = options.maxRem ?? 1.4;
+  element.style.fontSize = `${maxRem}rem`;
+
+  const availableWidth = element.clientWidth;
+  const requiredWidth = element.scrollWidth;
+  if (!availableWidth || requiredWidth <= availableWidth) {
+    return;
+  }
+
+  const fittedRem = Math.max(minRem, maxRem * ((availableWidth / requiredWidth) * 0.98));
+  element.style.fontSize = `${fittedRem}rem`;
+
+  if (element.scrollWidth > availableWidth) {
+    const step = 0.02;
+    for (let current = fittedRem; current > minRem; current -= step) {
+      element.style.fontSize = `${Math.max(minRem, current)}rem`;
+      if (element.scrollWidth <= availableWidth) {
+        break;
+      }
+    }
+  }
 }
 
 function renderConversationHeader() {
@@ -816,17 +958,76 @@ function renderConversationHeader() {
   elements.conversationView.classList.toggle("hidden", !hasSelection);
   elements.createInviteButton.disabled = !hasSelection;
   elements.refreshMessagesButton.disabled = !hasSelection;
+  elements.mobileBackButton.disabled = !hasSelection;
+  elements.toggleMembersButton.disabled = !hasSelection;
+  elements.toggleMembersButton.classList.toggle("hidden", !hasSelection);
+  elements.toggleMembersButton.textContent = state.mobileMembersOpen ? "Закрыть" : "Состав";
+  elements.createInviteButton.textContent = isMobileViewport() ? "Инвайт" : "Создать инвайт";
   renderComposerState();
 
   if (!hasSelection) {
     elements.messagesList.innerHTML = "";
     elements.membersList.innerHTML = "";
+    state.mobileMembersOpen = false;
+    syncMobileLayout();
     return;
   }
 
   elements.conversationTitle.textContent = selectedConversation.title;
   elements.conversationRole.textContent = selectedConversation.membershipRole;
-  elements.conversationMeta.textContent = `Чат #${selectedConversation.id} · ${state.currentMembers.length || "?"} участников`;
+  elements.conversationMeta.textContent = formatConversationMeta(selectedConversation.id, state.currentMembers.length || 0);
+  syncMobileLayout();
+}
+
+function isMobileViewport() {
+  return window.matchMedia("(max-width: 980px)").matches;
+}
+
+function formatConversationMeta(conversationId, memberCount) {
+  const normalizedCount = Number.isFinite(memberCount) ? memberCount : 0;
+  if (isMobileViewport()) {
+    return `#${conversationId} · ${formatMemberCountShort(normalizedCount)}`;
+  }
+
+  return `Чат #${conversationId} · ${formatMemberCountLong(normalizedCount)}`;
+}
+
+function formatMemberCountShort(count) {
+  return `${count} уч.`;
+}
+
+function formatMemberCountLong(count) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) {
+    return `${count} участник`;
+  }
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return `${count} участника`;
+  }
+  return `${count} участников`;
+}
+
+function syncMobileLayout() {
+  const loggedIn = Boolean(state.me && state.token);
+  if (!loggedIn) {
+    elements.appView.dataset.mobileScreen = "auth";
+    elements.appView.dataset.mobileMembersOpen = "false";
+    return;
+  }
+
+  if (!isMobileViewport()) {
+    state.mobileScreen = "split";
+    state.mobileMembersOpen = false;
+  } else if (!state.selectedConversationId) {
+    state.mobileScreen = "sidebar";
+    state.mobileMembersOpen = false;
+  } else if (state.mobileScreen !== "conversation") {
+    state.mobileScreen = "sidebar";
+  }
+
+  elements.appView.dataset.mobileScreen = state.mobileScreen;
+  elements.appView.dataset.mobileMembersOpen = String(Boolean(state.mobileMembersOpen && isMobileViewport()));
 }
 
 function renderMessages() {
@@ -834,7 +1035,7 @@ function renderMessages() {
     elements.messagesList.innerHTML = `
       <div class="empty-inline">
         <strong>Сообщений пока нет.</strong>
-        <p class="muted">Напиши первое сообщение здесь или отправь его из привязанной Telegram-группы.</p>
+        <p class="muted">Напиши первым здесь или отправь сообщение из Telegram.</p>
       </div>
     `;
     return;
@@ -873,7 +1074,7 @@ function renderMembers(members) {
     elements.membersList.innerHTML = `
       <div class="empty-inline">
         <strong>Участников пока нет.</strong>
-        <p class="muted">Добавь людей через invite-код, чтобы чат стал общим.</p>
+        <p class="muted">Добавь людей по коду, чтобы чат стал общим.</p>
       </div>
     `;
     return;
@@ -893,9 +1094,11 @@ function renderMembers(members) {
         <article class="member-card">
           <div class="member-shell">
             ${renderAvatarMarkup(displayName || username, avatarUrl, "member-avatar")}
-            <div>
+            <div class="member-copy">
               <strong class="member-name">${escapeHtml(displayName)}</strong>
-              <span class="muted">@${escapeHtml(username)}</span>${telegramHint}<br>
+              <div class="member-handle-line">
+                <span class="muted">@${escapeHtml(username)}</span>${telegramHint}
+              </div>
               <span class="member-role">${escapeHtml(member.role)}</span>
             </div>
           </div>
@@ -1470,22 +1673,28 @@ function renderComposerState() {
   elements.sendAsVideoNoteButton.classList.toggle("hidden", !canSendVideoNote);
   elements.sendAsVideoNoteButton.disabled = disabled || !canSendVideoNote;
   elements.sendAsVideoNoteButton.classList.toggle("active", state.sendAsVideoNote && canSendVideoNote);
-  elements.sendAsVideoNoteButton.textContent = state.sendAsVideoNote ? "Кружок: вкл" : "Кружок";
+  setToolButtonLabel(elements.sendAsVideoNoteButton, state.sendAsVideoNote ? "Кружок: вкл" : "Кружок");
   elements.recordVideoNoteButton.disabled =
     disabled || state.isRecordingVoice || !browserSupportsVideoNoteRecording();
   elements.recordVideoNoteButton.classList.toggle("recording", state.isRecordingVideoNote);
-  elements.recordVideoNoteButton.textContent = state.isRecordingVideoNote
-    ? "Отпусти, чтобы отправить"
-    : "Зажми для кружка";
+  elements.recordVideoNoteButton.classList.toggle("locked", state.videoNoteRecordingLocked);
+  setToolButtonLabel(
+    elements.recordVideoNoteButton,
+    state.isRecordingVideoNote
+      ? (state.videoNoteRecordingLocked ? "Отправить кружок" : "Зажми для кружка")
+      : "Зажми для кружка"
+  );
   elements.recordVoiceButton.disabled =
     disabled || state.isRecordingVideoNote || (!state.isRecordingVoice && !browserSupportsVoiceRecording());
   elements.clearRecordedVoiceButton.disabled =
     disabled || (!state.isRecordingVoice && !state.recordedVoiceFile);
   elements.sendMessageButton.disabled = disabled;
-  elements.recordVoiceButton.textContent = state.isRecordingVoice ? "Стоп" : "Голосовое";
+  setToolButtonLabel(elements.recordVoiceButton, state.isRecordingVoice ? "Стоп" : "Голосовое");
   elements.recordVoiceButton.classList.toggle("recording", state.isRecordingVoice);
   elements.clearRecordedVoiceButton.textContent = state.isRecordingVoice ? "Отмена" : "Удалить";
   elements.sendMessageButton.textContent = state.messageSubmitInFlight ? "Отправляем..." : "Отправить";
+  elements.switchVideoNoteCameraButton.disabled =
+    !state.isRecordingVideoNote || state.videoNoteCameraSwitchInFlight || !canSwitchVideoNoteCamera();
   renderVideoNoteRecordingPreview();
   renderRecordedVoicePreview();
 }
@@ -1519,9 +1728,25 @@ function renderVideoNoteRecordingPreview() {
   attachVideoNoteRecordingPreview();
   const elapsedMs = Math.max(0, Date.now() - (state.videoNoteRecordingStartedAt || Date.now()));
   const elapsedLabel = formatRecordingDuration(elapsedMs);
-  elements.videoNoteRecordingStatus.textContent = "Кружок · запись";
-  elements.videoNoteRecordingMeta.textContent = `${elapsedLabel} · отпусти кнопку, чтобы отправить`;
+  elements.videoNoteRecordingStatus.textContent = state.videoNoteRecordingLocked
+    ? "Кружок · запись зафиксирована"
+    : "Кружок · запись";
+  elements.videoNoteRecordingMeta.textContent = state.videoNoteRecordingLocked
+    ? `${elapsedLabel} · нажми кнопку еще раз, чтобы отправить`
+    : `${elapsedLabel} · смахни вверх для фиксации`;
   elements.videoNoteRecordingTimer.textContent = elapsedLabel;
+}
+
+function setToolButtonLabel(button, label) {
+  const labelElement = button?.querySelector(".tool-button-label");
+  if (labelElement) {
+    labelElement.textContent = label;
+    return;
+  }
+
+  if (button) {
+    button.textContent = label;
+  }
 }
 
 function attachVideoNoteRecordingPreview() {
@@ -1741,14 +1966,7 @@ async function startVideoNoteRecording(pointerId) {
 
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: "user",
-        width: { ideal: 480 },
-        height: { ideal: 480 },
-      },
-      audio: true,
-    });
+    stream = await getVideoNoteMediaStream({ includeAudio: true, facingMode: state.videoNoteCameraFacingMode });
   } catch (error) {
     showToast("Не удалось получить доступ к камере.", "error");
     return false;
@@ -1772,9 +1990,11 @@ async function startVideoNoteRecording(pointerId) {
   state.videoNoteRecorderMimeType = recorder.mimeType || preferredFormat?.mimeType || "video/webm";
   state.isRecordingVideoNote = true;
   state.activeVideoNotePointerId = pointerId ?? null;
+  state.videoNotePointerStartY = null;
   state.videoNoteTargetConversationId = state.selectedConversationId;
   state.discardVideoNoteOnStop = false;
   state.videoNoteRecordingStartedAt = Date.now();
+  state.videoNoteRecordingLocked = false;
   recorder.addEventListener("dataavailable", handleVideoNoteRecordingChunk);
   recorder.addEventListener("stop", handleVideoNoteRecordingStopped, { once: true });
   recorder.start();
@@ -1857,9 +2077,12 @@ function cleanupVideoNoteRecorder() {
   state.videoNoteRecorderMimeType = "";
   state.isRecordingVideoNote = false;
   state.activeVideoNotePointerId = null;
+  state.videoNotePointerStartY = null;
   state.videoNoteTargetConversationId = null;
   state.discardVideoNoteOnStop = false;
   state.videoNoteRecordingStartedAt = null;
+  state.videoNoteRecordingLocked = false;
+  state.videoNoteCameraSwitchInFlight = false;
 }
 
 async function uploadRecordedVideoNote(conversationId, file) {
@@ -1883,6 +2106,83 @@ async function uploadRecordedVideoNote(conversationId, file) {
     showToast(error.message, "error");
   } finally {
     state.messageSubmitInFlight = false;
+    renderComposerState();
+  }
+}
+
+async function getVideoNoteMediaStream(options = {}) {
+  const includeAudio = options.includeAudio ?? true;
+  const facingMode = options.facingMode ?? state.videoNoteCameraFacingMode;
+  const baseVideoConstraints = {
+    width: { ideal: 480 },
+    height: { ideal: 480 },
+    aspectRatio: { ideal: 1 },
+  };
+
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: {
+        ...baseVideoConstraints,
+        facingMode: { ideal: facingMode },
+      },
+      ...(includeAudio ? { audio: true } : { audio: false }),
+    });
+  } catch (error) {
+    if (!facingMode) {
+      throw error;
+    }
+
+    return navigator.mediaDevices.getUserMedia({
+      video: baseVideoConstraints,
+      ...(includeAudio ? { audio: true } : { audio: false }),
+    });
+  }
+}
+
+function canSwitchVideoNoteCamera() {
+  return Boolean(
+    navigator.mediaDevices?.getUserMedia
+    && state.isRecordingVideoNote
+    && state.videoNoteRecorderStream
+  );
+}
+
+async function switchVideoNoteCamera() {
+  if (!canSwitchVideoNoteCamera() || state.videoNoteCameraSwitchInFlight) {
+    return;
+  }
+
+  const nextFacingMode = state.videoNoteCameraFacingMode === "user" ? "environment" : "user";
+  state.videoNoteCameraSwitchInFlight = true;
+  renderComposerState();
+
+  let nextVideoStream;
+  try {
+    nextVideoStream = await getVideoNoteMediaStream({
+      includeAudio: false,
+      facingMode: nextFacingMode,
+    });
+    const nextVideoTrack = nextVideoStream.getVideoTracks()[0];
+    if (!nextVideoTrack || !state.videoNoteRecorderStream) {
+      throw new Error("camera-switch-unavailable");
+    }
+
+    const currentStream = state.videoNoteRecorderStream;
+    currentStream.getVideoTracks().forEach((track) => {
+      currentStream.removeTrack(track);
+      track.stop();
+    });
+    currentStream.addTrack(nextVideoTrack);
+    state.videoNoteCameraFacingMode = nextFacingMode;
+
+    detachVideoNoteRecordingPreview();
+    attachVideoNoteRecordingPreview();
+  } catch (error) {
+    nextVideoStream?.getTracks().forEach((track) => track.stop());
+    showToast("Не удалось переключить камеру.", "error");
+  } finally {
+    state.videoNoteCameraSwitchInFlight = false;
+    renderVideoNoteRecordingPreview();
     renderComposerState();
   }
 }
@@ -2155,8 +2455,26 @@ function createRecordingTimestamp() {
   ].join("");
 }
 
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // PWA support is best-effort in local dev.
+    });
+  });
+}
+
 render();
 renderSelectedAttachments();
+window.addEventListener("resize", () => {
+  queueMetricValueFit();
+  syncMobileLayout();
+  renderConversationHeader();
+});
+registerServiceWorker();
 if (state.token) {
   bootstrapSession();
 }

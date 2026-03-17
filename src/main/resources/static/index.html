@@ -4,10 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hermes Messenger</title>
+    <meta name="theme-color" content="#0b1f13">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Hermes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/hermes-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/app.css?v=20260317-profile-1">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/app.css?v=20260317-pwa-2">
 </head>
 <body>
 <div class="page-shell">
@@ -19,16 +27,15 @@
         <section class="hero-panel">
             <div class="hero-copy">
                 <div class="eyebrow">Hermes Bridge</div>
-                <h1>Своя система общения, где Telegram работает как мост, а не как единственный дом.</h1>
+                <h1>Hermes. Мессенджер без VPN, где Telegram остается на связи.</h1>
                 <p class="lead">
-                    Hermes уже умеет регистрировать пользователей через бота, создавать чаты, выдавать инвайты
-                    и связывать комнаты с Telegram-группами. Этот интерфейс нужен, чтобы тестировать все это как
-                    настоящий продукт, а не как набор API вызовов.
+                    Даже если Telegram ограничивают, Hermes остается рабочим контуром общения:
+                    сообщения, медиа и участники продолжают синхронизироваться с подключенными Telegram-чатами через bridge.
                 </p>
                 <div class="hero-tags">
-                    <span class="hero-tag">Dark messenger</span>
-                    <span class="hero-tag">Bridge first</span>
-                    <span class="hero-tag">Liquid glass</span>
+                    <span class="hero-tag">Private chat</span>
+                    <span class="hero-tag">Telegram sync</span>
+                    <span class="hero-tag">Media ready</span>
                 </div>
             </div>
 
@@ -41,24 +48,24 @@
                     </div>
                     <div class="device-thread">
                         <div class="device-bubble incoming">
-                            <strong>Hermes Sync</strong>
-                            <span>Сообщения из Telegram уже приходят в общий внутренний чат.</span>
+                            <strong>Telegram sync</strong>
+                            <span>Новое сообщение доставлено в Hermes.</span>
                         </div>
                         <div class="device-bubble outgoing">
-                            <strong>You</strong>
-                            <span>Теперь доводим интерфейс до состояния, в котором им приятно реально пользоваться.</span>
+                            <strong>Hermes</strong>
+                            <span>Чат, доступ и медиа работают в одном контуре.</span>
                         </div>
                     </div>
                 </article>
 
                 <article class="device-card compact-card">
                     <div class="device-stat">
-                        <span>Bridge</span>
-                        <strong>Telegram connected</strong>
+                        <span>Sync</span>
+                        <strong>Telegram online</strong>
                     </div>
                     <div class="device-stat">
                         <span>Access</span>
-                        <strong>Invite and roles</strong>
+                        <strong>Roles and invites</strong>
                     </div>
                 </article>
             </div>
@@ -67,38 +74,38 @@
                 <article class="feature-card">
                     <span class="feature-kicker">01</span>
                     <h3>Регистрация через бота</h3>
-                    <p>Пользователь получает токен и попадает в Hermes без ручной возни с API.</p>
+                    <p>Вход по токену без ручной настройки.</p>
                 </article>
                 <article class="feature-card">
                     <span class="feature-kicker">02</span>
                     <h3>Синхронизация чатов</h3>
-                    <p>Одна и та же комната живет в Hermes и в Telegram-группе как единый разговор.</p>
+                    <p>Один диалог для Hermes и Telegram.</p>
                 </article>
                 <article class="feature-card">
                     <span class="feature-kicker">03</span>
-                    <h3>Основа для роста</h3>
-                    <p>Дальше на эту базу можно уже спокойно наслаивать медиа, поиск, права и полноценный UX.</p>
+                    <h3>Медиа и роли</h3>
+                    <p>Фото, видео, голосовые, кружки и доступ по ролям.</p>
                 </article>
             </div>
         </section>
 
         <section class="auth-card">
-            <div class="eyebrow">Вход в клиент</div>
-            <h2>Подключи свой Hermes-аккаунт</h2>
+            <div class="eyebrow">Вход</div>
+            <h2>Открой Hermes</h2>
             <p class="muted">
-                Получи bearer token у <strong>@HermesBridgeBot</strong> и вставь его сюда, чтобы открыть тестовый web UI.
+                Вставь токен от <strong>@HermesBridgeBot</strong>, чтобы открыть клиент.
             </p>
             <form id="loginForm" class="stack">
                 <label class="stack gap-sm">
-                    <span>API token</span>
+                    <span>Токен доступа</span>
                     <textarea id="tokenInput" rows="4" placeholder="tgc_..."></textarea>
                 </label>
                 <button type="submit" class="primary-button">Войти по токену</button>
             </form>
             <div class="auth-note">
-                <strong>Что дальше</strong>
+                <strong>Первый вход</strong>
                 <p class="muted">
-                    После входа можно создавать чаты, вступать по invite-коду, смотреть участников и тестировать сообщения уже вне Telegram.
+                    Если токена еще нет, открой бота, нажми <strong>/start</strong> и вставь выданный ключ сюда.
                 </p>
             </div>
         </section>
@@ -115,7 +122,7 @@
                     <button id="logoutButton" class="ghost-button" type="button">Выйти</button>
                 </div>
                 <p class="muted">
-                    Рабочая панель для живого теста Hermes: чаты, инвайты, участники и связка с Telegram.
+                    Чаты, участники, инвайты и Telegram sync.
                 </p>
                 <div id="userCard" class="user-card"></div>
                 <div class="sidebar-tool-row">
@@ -189,22 +196,22 @@
             <header class="workspace-topbar">
                 <div class="workspace-copy">
                     <div class="eyebrow">Workspace</div>
-                    <h2 id="workspaceTitle">Hermes workspace</h2>
+                    <h2 id="workspaceTitle">Обзор Hermes</h2>
                     <p id="workspaceSummary" class="muted">
-                        Выбери чат слева или создай новый. Эта панель станет основой будущего клиента Hermes.
+                        Выбери чат слева или создай новый.
                     </p>
                 </div>
 
                 <div class="workspace-metrics">
-                    <article class="metric-card">
+                    <article class="metric-card metric-card-count">
                         <span>Чатов</span>
                         <strong id="conversationCountValue">0</strong>
                     </article>
-                    <article class="metric-card">
+                    <article class="metric-card metric-card-profile">
                         <span>Профиль</span>
                         <strong id="userHandleValue">-</strong>
                     </article>
-                    <article class="metric-card">
+                    <article class="metric-card metric-card-sync">
                         <span>Синхронизация</span>
                         <strong id="syncStateValue">Оффлайн</strong>
                     </article>
@@ -214,38 +221,42 @@
             <section class="workspace-shell">
                 <section id="emptyState" class="empty-state">
                     <div class="eyebrow">Hermes</div>
-                    <h2>Выбери чат слева</h2>
+                    <h2>Выбери чат</h2>
                     <p class="muted">
-                        Здесь появятся сообщения, состав участников, invite-кнопка и весь рабочий контур выбранного чата.
+                        Здесь появятся сообщения, участники и действия выбранного чата.
                     </p>
                     <div class="empty-grid">
                         <article class="empty-card">
                             <strong>Создай новый чат</strong>
-                            <p class="muted">Подходит для отдельной команды, круга друзей или тестовой Telegram-группы.</p>
+                            <p class="muted">Для новой команды, круга друзей или отдельной группы.</p>
                         </article>
                         <article class="empty-card">
-                            <strong>Зайди по invite-коду</strong>
-                            <p class="muted">Новый пользователь может подключиться без терминала и без ручных API вызовов.</p>
+                            <strong>Войди по коду</strong>
+                            <p class="muted">Подключение без терминала и ручных запросов.</p>
                         </article>
                         <article class="empty-card">
-                            <strong>Подключи bridge</strong>
-                            <p class="muted">После привязки группы сообщения будут ходить между Hermes и Telegram в обе стороны.</p>
+                            <strong>Подключи Telegram</strong>
+                            <p class="muted">После привязки сообщения пойдут в обе стороны.</p>
                         </article>
                     </div>
                 </section>
 
                 <section id="conversationView" class="conversation-view hidden">
                     <header class="conversation-header">
-                        <div>
-                            <div class="conversation-topline">
-                                <div id="conversationRole" class="role-pill"></div>
-                                <span class="conversation-online">Bridge connected</span>
+                        <div class="conversation-header-main">
+                            <button id="mobileBackButton" class="icon-button mobile-only" type="button" aria-label="Назад к чатам">←</button>
+                            <div class="conversation-header-copy">
+                                <div class="conversation-topline">
+                                    <div id="conversationRole" class="role-pill"></div>
+                                    <span class="conversation-online">Telegram sync</span>
+                                </div>
+                                <h2 id="conversationTitle"></h2>
+                                <p id="conversationMeta" class="muted"></p>
                             </div>
-                            <h2 id="conversationTitle"></h2>
-                            <p id="conversationMeta" class="muted"></p>
                         </div>
                         <div class="header-actions">
-                            <button id="createInviteButton" class="secondary-button" type="button">Создать invite</button>
+                            <button id="toggleMembersButton" class="ghost-button compact-button mobile-only" type="button">Состав</button>
+                            <button id="createInviteButton" class="secondary-button" type="button">Создать инвайт</button>
                             <button id="refreshMessagesButton" class="ghost-button" type="button">Обновить</button>
                         </div>
                     </header>
@@ -258,11 +269,39 @@
                                     <div class="message-composer-tools">
                                         <label class="attachment-picker" for="messageAttachmentsInput">
                                             <input id="messageAttachmentsInput" type="file" multiple accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.bmp,.heic,.heif,video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,audio/*,.ogg,.oga,.opus,.mp3,.m4a,.aac,.wav,.webm,.pdf,.doc,.docx,.txt,.zip,.rtf,application/*">
-                                            <span>Добавить файлы</span>
+                                            <span class="tool-button-icon" aria-hidden="true">
+                                                <svg viewBox="0 0 24 24" focusable="false">
+                                                    <path d="M11 5a1 1 0 0 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6z" fill="currentColor"/>
+                                                </svg>
+                                            </span>
+                                            <span class="tool-button-label">Добавить файлы</span>
                                         </label>
-                                        <button id="sendAsVideoNoteButton" type="button" class="ghost-button compact-button hidden">Кружок</button>
-                                        <button id="recordVideoNoteButton" type="button" class="ghost-button compact-button video-note-record-button">Зажми для кружка</button>
-                                        <button id="recordVoiceButton" type="button" class="ghost-button voice-record-button">Голосовое</button>
+                                        <button id="sendAsVideoNoteButton" type="button" class="ghost-button compact-button hidden">
+                                            <span class="tool-button-icon" aria-hidden="true">
+                                                <svg viewBox="0 0 24 24" focusable="false">
+                                                    <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                                                    <circle cx="12" cy="12" r="2.4" fill="currentColor"/>
+                                                </svg>
+                                            </span>
+                                            <span class="tool-button-label">Кружок</span>
+                                        </button>
+                                        <button id="recordVideoNoteButton" type="button" class="ghost-button compact-button video-note-record-button">
+                                            <span class="tool-button-icon" aria-hidden="true">
+                                                <svg viewBox="0 0 24 24" focusable="false">
+                                                    <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                                                    <circle cx="12" cy="12" r="3.4" fill="currentColor"/>
+                                                </svg>
+                                            </span>
+                                            <span class="tool-button-label">Зажми для кружка</span>
+                                        </button>
+                                        <button id="recordVoiceButton" type="button" class="ghost-button voice-record-button">
+                                            <span class="tool-button-icon" aria-hidden="true">
+                                                <svg viewBox="0 0 24 24" focusable="false">
+                                                    <path d="M12 15.2a3.6 3.6 0 0 0 3.6-3.6V7.6a3.6 3.6 0 1 0-7.2 0v4a3.6 3.6 0 0 0 3.6 3.6Zm-5-3.6a1 1 0 1 1 2 0 3 3 0 0 0 6 0 1 1 0 1 1 2 0 5 5 0 0 1-4 4.9V19h2a1 1 0 1 1 0 2H9a1 1 0 1 1 0-2h2v-2.5a5 5 0 0 1-4-4.9Z" fill="currentColor"/>
+                                                </svg>
+                                            </span>
+                                            <span class="tool-button-label">Голосовое</span>
+                                        </button>
                                     </div>
                                     <span id="attachmentSelectionLabel" class="composer-hint">Без вложений</span>
                                 </div>
@@ -282,9 +321,19 @@
                                             <div id="videoNoteRecordingStatus" class="section-caption">Кружок · запись</div>
                                             <div id="videoNoteRecordingMeta" class="composer-hint">00:00 · отпусти кнопку, чтобы отправить</div>
                                         </div>
-                                        <div class="video-note-recording-badge">
-                                            <span class="video-note-recording-dot"></span>
-                                            <span id="videoNoteRecordingTimer">00:00</span>
+                                        <div class="video-note-recording-tools">
+                                            <button id="switchVideoNoteCameraButton" type="button" class="ghost-button compact-button video-note-camera-button mobile-only" aria-label="Переключить камеру">
+                                                <span class="tool-button-icon" aria-hidden="true">
+                                                    <svg viewBox="0 0 24 24" focusable="false">
+                                                        <path d="M8.4 7H15a3 3 0 0 1 3 3v1.2l1.2-1.2a1 1 0 1 1 1.4 1.4l-3 3a1 1 0 0 1-1.4 0l-3-3a1 1 0 1 1 1.4-1.4l1.4 1.4V10a1 1 0 0 0-1-1H8.4a1 1 0 1 1 0-2Zm7.2 10H9a3 3 0 0 1-3-3v-1.2l-1.2 1.2a1 1 0 1 1-1.4-1.4l3-3a1 1 0 0 1 1.4 0l3 3a1 1 0 1 1-1.4 1.4L8 12.6V14a1 1 0 0 0 1 1h6.6a1 1 0 1 1 0 2Z" fill="currentColor"/>
+                                                    </svg>
+                                                </span>
+                                                <span class="tool-button-label">Камера</span>
+                                            </button>
+                                            <div class="video-note-recording-badge">
+                                                <span class="video-note-recording-dot"></span>
+                                                <span id="videoNoteRecordingTimer">00:00</span>
+                                            </div>
                                         </div>
                                     </div>
                                     <div class="video-note-recording-shell">
@@ -306,21 +355,24 @@
                         </div>
 
                         <aside class="members-panel">
-                            <div>
-                                <div class="section-caption">Состав</div>
-                                <h3>Участники</h3>
+                            <div class="members-panel-head">
+                                <div>
+                                    <div class="section-caption">Состав</div>
+                                    <h3>Участники</h3>
+                                </div>
+                                <button id="closeMembersPanelButton" class="icon-button mobile-only" type="button" aria-label="Закрыть состав">×</button>
                             </div>
                             <div id="membersList" class="members-list"></div>
                             <div class="note-card">
-                                <strong>Invite</strong>
+                                <strong>Инвайт</strong>
                                 <p class="muted">
-                                    Создай invite кнопкой сверху и отправь код человеку. Он сможет зайти через бота кнопкой <strong>Вход</strong> или через поле слева.
+                                    Создай код сверху и отправь его человеку. Вход доступен через бота или поле слева.
                                 </p>
                             </div>
                             <div class="note-card">
-                                <strong>Bridge</strong>
+                                <strong>Синк</strong>
                                 <p class="muted">
-                                    Если этот чат связан с Telegram-группой, сообщения и дальше будут зеркалиться между обоими контурами.
+                                    Если чат связан с Telegram, сообщения продолжают зеркалиться автоматически.
                                 </p>
                             </div>
                         </aside>
@@ -332,6 +384,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/app.js?v=20260317-profile-1" defer></script>
+<script src="/app.js?v=20260317-pwa-2" defer></script>
 </body>
 </html>

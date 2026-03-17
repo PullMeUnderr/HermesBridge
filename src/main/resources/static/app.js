@@ -2210,29 +2210,33 @@ function resetComposer() {
 function renderComposerState() {
   const disabled = !state.selectedConversationId || state.messageSubmitInFlight;
   const canSendVideoNote = canSendSelectedFileAsVideoNote();
+  const videoNoteSupportIssue = getVideoNoteRecordingSupportIssue();
+  const voiceSupportIssue = getVoiceRecordingSupportIssue();
   elements.messageInput.disabled = disabled;
   elements.messageAttachmentsInput.disabled = disabled;
   elements.sendAsVideoNoteButton.classList.toggle("hidden", !canSendVideoNote);
   elements.sendAsVideoNoteButton.disabled = disabled || !canSendVideoNote;
   elements.sendAsVideoNoteButton.classList.toggle("active", state.sendAsVideoNote && canSendVideoNote);
   setToolButtonLabel(elements.sendAsVideoNoteButton, state.sendAsVideoNote ? "Кружок: вкл" : "Кружок");
-  elements.recordVideoNoteButton.disabled =
-    disabled || state.isRecordingVoice || !browserSupportsVideoNoteRecording();
+  elements.recordVideoNoteButton.disabled = disabled || state.isRecordingVoice;
   elements.recordVideoNoteButton.classList.toggle("recording", state.isRecordingVideoNote);
   elements.recordVideoNoteButton.classList.toggle("locked", state.videoNoteRecordingLocked);
+  elements.recordVideoNoteButton.classList.toggle("unsupported", Boolean(videoNoteSupportIssue));
+  elements.recordVideoNoteButton.title = videoNoteSupportIssue || "";
   setToolButtonLabel(
     elements.recordVideoNoteButton,
     state.isRecordingVideoNote
       ? (state.videoNoteRecordingLocked ? "Отправить кружок" : "Зажми для кружка")
       : "Зажми для кружка"
   );
-  elements.recordVoiceButton.disabled =
-    disabled || state.isRecordingVideoNote || (!state.isRecordingVoice && !browserSupportsVoiceRecording());
+  elements.recordVoiceButton.disabled = disabled || state.isRecordingVideoNote;
   elements.clearRecordedVoiceButton.disabled =
     disabled || (!state.isRecordingVoice && !state.recordedVoiceFile);
   elements.sendMessageButton.disabled = disabled;
   setToolButtonLabel(elements.recordVoiceButton, state.isRecordingVoice ? "Стоп" : "Голосовое");
   elements.recordVoiceButton.classList.toggle("recording", state.isRecordingVoice);
+  elements.recordVoiceButton.classList.toggle("unsupported", Boolean(voiceSupportIssue));
+  elements.recordVoiceButton.title = voiceSupportIssue || "";
   elements.clearRecordedVoiceButton.textContent = state.isRecordingVoice ? "Отмена" : "Удалить";
   elements.sendMessageButton.textContent = state.messageSubmitInFlight ? "Отправляем..." : "Отправить";
   elements.switchVideoNoteCameraButton.disabled =
@@ -2510,7 +2514,7 @@ async function startVideoNoteRecording(pointerId) {
   }
 
   if (!browserSupportsVideoNoteRecording()) {
-    showToast("Этот браузер не поддерживает запись кружков.", "error");
+    showToast(getVideoNoteRecordingSupportIssue() || "Этот браузер не поддерживает запись кружков.", "error");
     return false;
   }
 
@@ -2778,7 +2782,7 @@ async function startVoiceRecording() {
   }
 
   if (!browserSupportsVoiceRecording()) {
-    showToast("Этот браузер не поддерживает запись голосовых.", "error");
+    showToast(getVoiceRecordingSupportIssue() || "Этот браузер не поддерживает запись голосовых.", "error");
     return;
   }
 
@@ -2896,11 +2900,38 @@ function stopMediaStream(stream) {
 }
 
 function browserSupportsVoiceRecording() {
-  return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  return !getVoiceRecordingSupportIssue();
 }
 
 function browserSupportsVideoNoteRecording() {
-  return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  return !getVideoNoteRecordingSupportIssue();
+}
+
+function getVoiceRecordingSupportIssue() {
+  return getMediaRecordingSupportIssue("audio");
+}
+
+function getVideoNoteRecordingSupportIssue() {
+  return getMediaRecordingSupportIssue("video");
+}
+
+function getMediaRecordingSupportIssue(kind) {
+  const mediaLabel = kind === "video" ? "Запись кружков" : "Запись голосовых";
+  const isLocalHost = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+
+  if (!window.isSecureContext && !isLocalHost) {
+    return `${mediaLabel} доступна только через HTTPS или localhost. Сейчас Hermes открыт по обычному HTTP.`;
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return `${mediaLabel} недоступна в этом браузере.`;
+  }
+
+  if (!window.MediaRecorder) {
+    return `${mediaLabel} не поддерживается этим браузером.`;
+  }
+
+  return "";
 }
 
 function canSendSelectedFileAsVideoNote() {

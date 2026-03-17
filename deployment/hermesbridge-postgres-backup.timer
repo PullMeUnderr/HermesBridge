@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily PostgreSQL backup timer for HermesBridge
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+Persistent=true
+Unit=hermesbridge-postgres-backup.service
+
+[Install]
+WantedBy=timers.target

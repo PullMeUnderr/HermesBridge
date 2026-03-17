@@ -66,6 +66,9 @@ export APP_DATASOURCE_PASSWORD=postgres
 - `deployment/hermesbridge.service`
 - `deployment/deploy-vps.sh`
 - `deployment/README.md`
+- `deployment/hermesbridge-postgres-backup.sh`
+- `deployment/hermesbridge-postgres-backup.service`
+- `deployment/hermesbridge-postgres-backup.timer`
 
 ### 3. Зарегистрироваться через Telegram-бота
 

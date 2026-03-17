@@ -21,6 +21,9 @@
 - `hermesbridge.env.example` — шаблон env-файла
 - `hermesbridge.service` — systemd unit
 - `deploy-vps.sh` — сборка и выкладка jar по SSH
+- `hermesbridge-postgres-backup.sh` — backup локальной базы
+- `hermesbridge-postgres-backup.service` — systemd service для backup
+- `hermesbridge-postgres-backup.timer` — ежедневный timer для backup
 
 ## Базовый порядок
 
@@ -36,3 +39,39 @@
 5. На сервере:
    - проверить `systemctl status hermesbridge`
    - открыть `http://SERVER_IP:8080`
+
+## PostgreSQL backup
+
+Локальная база на VPS должна регулярно бэкапиться.
+
+Что ставим:
+
+- `/usr/local/bin/hermesbridge-postgres-backup.sh`
+- `/etc/systemd/system/hermesbridge-postgres-backup.service`
+- `/etc/systemd/system/hermesbridge-postgres-backup.timer`
+
+Поведение:
+
+- backup каждый день в `02:30 UTC`
+- хранение последних `7` дней
+- формат дампа:
+  - `${DB_NAME}.dump` — custom dump для `pg_restore`
+  - `globals.sql` — роли и глобальные объекты
+
+Проверка:
+
+```bash
+systemctl start hermesbridge-postgres-backup.service
+systemctl status hermesbridge-postgres-backup.service
+systemctl list-timers hermesbridge-postgres-backup.timer
+ls -lah /var/backups/hermesbridge/postgres
+```
+
+Восстановление:
+
+```bash
+runuser -u postgres -- psql -c "DROP DATABASE hermesbridge;"
+runuser -u postgres -- createdb -O hermesbridge hermesbridge
+runuser -u postgres -- psql -f /path/to/globals.sql
+runuser -u postgres -- pg_restore --clean --if-exists --no-owner --dbname=hermesbridge /path/to/hermesbridge.dump
+```

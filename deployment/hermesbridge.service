@@ -1,0 +1,27 @@
+[Unit]
+Description=HermesBridge messenger backend
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=hermes
+Group=hermes
+WorkingDirectory=/opt/hermesbridge/current
+EnvironmentFile=/etc/hermesbridge/hermes.env
+ExecStart=/usr/bin/java -Xms256m -Xmx512m -jar /opt/hermesbridge/current/hermesbridge.jar
+SuccessExitStatus=143
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/hermesbridge /var/log/hermesbridge /opt/hermesbridge/current
+
+StandardOutput=append:/var/log/hermesbridge/app.log
+StandardError=append:/var/log/hermesbridge/app-error.log
+
+[Install]
+WantedBy=multi-user.target

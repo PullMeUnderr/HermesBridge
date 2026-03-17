@@ -50,6 +50,23 @@ export APP_DATASOURCE_PASSWORD=postgres
 ./mvnw spring-boot:run
 ```
 
+## Временный deploy на VPS
+
+Если нужно быстро поднять Hermes на собственном VPS рядом с уже работающим VPN-контуром:
+
+- используем `systemd`, а не Docker
+- держим `Postgres` локально на сервере
+- медиа складываем локально на диск сервера
+- не трогаем `443/tcp` и другие VPN-порты
+
+Готовые файлы лежат в:
+
+- `deployment/install-vps.sh`
+- `deployment/hermesbridge.env.example`
+- `deployment/hermesbridge.service`
+- `deployment/deploy-vps.sh`
+- `deployment/README.md`
+
 ### 3. Зарегистрироваться через Telegram-бота
 
 Открой личку с ботом и отправь:

@@ -11,6 +11,27 @@ public record TelegramInboundEnvelope(
     String authorDisplayName,
     String body,
     Instant createdAt,
+    String replyToExternalMessageId,
     List<ConversationAttachmentDraft> attachments
 ) {
+    public TelegramInboundEnvelope(
+        String externalChatId,
+        String externalMessageId,
+        String authorId,
+        String authorDisplayName,
+        String body,
+        Instant createdAt,
+        List<ConversationAttachmentDraft> attachments
+    ) {
+        this(
+            externalChatId,
+            externalMessageId,
+            authorId,
+            authorDisplayName,
+            body,
+            createdAt,
+            null,
+            attachments
+        );
+    }
 }

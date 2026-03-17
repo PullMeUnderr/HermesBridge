@@ -200,6 +200,7 @@ public class TelegramPollingService {
             telegramUser == null ? "Telegram User" : telegramUser.displayName(),
             extractInboundBody(message),
             message.sentAt(),
+            extractReplyToExternalMessageId(message),
             extractInboundAttachments(message)
         );
 
@@ -225,6 +226,7 @@ public class TelegramPollingService {
             telegramUser == null ? "Telegram User" : telegramUser.displayName(),
             extractInboundBody(messages),
             firstMessage.sentAt(),
+            extractReplyToExternalMessageId(firstMessage),
             extractInboundAttachments(messages)
         );
 
@@ -702,6 +704,13 @@ public class TelegramPollingService {
             attachments.addAll(extractInboundAttachments(message));
         }
         return attachments;
+    }
+
+    private String extractReplyToExternalMessageId(TelegramMessageDto message) {
+        if (message == null || message.replyToMessage() == null || message.replyToMessage().messageId() == null) {
+            return null;
+        }
+        return String.valueOf(message.replyToMessage().messageId());
     }
 
     private TelegramPhotoSizeDto largestPhoto(List<TelegramPhotoSizeDto> photos) {

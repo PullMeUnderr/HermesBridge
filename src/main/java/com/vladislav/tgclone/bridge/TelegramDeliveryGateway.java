@@ -3,6 +3,7 @@ package com.vladislav.tgclone.bridge;
 import com.vladislav.tgclone.conversation.ConversationMessage;
 import com.vladislav.tgclone.conversation.ConversationAttachment;
 import com.vladislav.tgclone.conversation.ConversationAttachmentKind;
+import com.vladislav.tgclone.conversation.ConversationMentionService;
 import com.vladislav.tgclone.media.MediaStorageService;
 import java.util.List;
 import com.vladislav.tgclone.telegram.TelegramBotClient;
@@ -13,10 +14,19 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
 
     private final TelegramBotClient telegramBotClient;
     private final MediaStorageService mediaStorageService;
+    private final DeliveryRecordRepository deliveryRecordRepository;
+    private final ConversationMentionService conversationMentionService;
 
-    public TelegramDeliveryGateway(TelegramBotClient telegramBotClient, MediaStorageService mediaStorageService) {
+    public TelegramDeliveryGateway(
+        TelegramBotClient telegramBotClient,
+        MediaStorageService mediaStorageService,
+        DeliveryRecordRepository deliveryRecordRepository,
+        ConversationMentionService conversationMentionService
+    ) {
         this.telegramBotClient = telegramBotClient;
         this.mediaStorageService = mediaStorageService;
+        this.deliveryRecordRepository = deliveryRecordRepository;
+        this.conversationMentionService = conversationMentionService;
     }
 
     @Override
@@ -27,9 +37,14 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
     @Override
     public String deliver(TransportBinding binding, ConversationMessage message) {
         List<com.vladislav.tgclone.conversation.ConversationAttachment> attachments = message.getAttachments();
+        String replyToMessageId = resolveReplyTargetMessageId(binding, message);
         if (attachments.isEmpty()) {
-            String text = message.getAuthorDisplayName() + ": " + message.getBody();
-            return telegramBotClient.sendMessage(binding.getExternalChatId(), text);
+            return telegramBotClient.sendMessage(
+                binding.getExternalChatId(),
+                buildMessageText(message),
+                null,
+                replyToMessageId
+            );
         }
 
         if (attachments.size() > 1 && canSendAsMediaGroup(attachments)) {
@@ -37,7 +52,8 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
                 return telegramBotClient.sendMediaGroup(
                     binding.getExternalChatId(),
                     attachments.stream().map(this::toMediaGroupItem).toList(),
-                    buildCaption(message)
+                    buildCaption(message),
+                    replyToMessageId
                 );
             } catch (Exception ignored) {
                 // Fall back to individual sends.
@@ -49,7 +65,8 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
         for (int index = 0; index < attachments.size(); index++) {
             ConversationAttachment attachment = attachments.get(index);
             String currentCaption = index == 0 ? caption : null;
-            String messageId = deliverAttachment(binding, attachment, currentCaption);
+            String currentReplyToMessageId = index == 0 ? replyToMessageId : null;
+            String messageId = deliverAttachment(binding, attachment, currentCaption, currentReplyToMessageId);
 
             if (firstMessageId.isBlank() && messageId != null && !messageId.isBlank()) {
                 firstMessageId = messageId;
@@ -59,77 +76,136 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
         return firstMessageId;
     }
 
+    private String buildMessageText(ConversationMessage message) {
+        String normalizedBody = conversationMentionService.resolveTelegramOutboundMentions(
+            message.getConversation().getId(),
+            message.getBody()
+        );
+        return message.getAuthorDisplayName() + ": " + normalizedBody;
+    }
+
     private String buildCaption(ConversationMessage message) {
-        String body = message.getBody() == null ? "" : message.getBody().trim();
+        String body = conversationMentionService.resolveTelegramOutboundMentions(
+            message.getConversation().getId(),
+            message.getBody()
+        );
+        body = body == null ? "" : body.trim();
         String caption = body.isBlank()
             ? message.getAuthorDisplayName()
             : message.getAuthorDisplayName() + ": " + body;
         return caption.length() > 1024 ? caption.substring(0, 1021) + "..." : caption;
     }
 
-    private String deliverAttachment(TransportBinding binding, ConversationAttachment attachment, String caption) {
+    private String deliverAttachment(
+        TransportBinding binding,
+        ConversationAttachment attachment,
+        String caption,
+        String replyToMessageId
+    ) {
         java.nio.file.Path path = mediaStorageService.resolve(attachment.getStorageKey());
         return switch (attachment.getKind()) {
-            case PHOTO -> deliverPhoto(binding, attachment, path, caption);
-            case VIDEO -> deliverVideo(binding, attachment, path, caption);
-            case VIDEO_NOTE -> deliverVideoNote(binding, attachment, path, caption);
-            case VOICE -> deliverVoice(binding, attachment, path, caption);
-            case DOCUMENT -> telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption);
+            case PHOTO -> deliverPhoto(binding, attachment, path, caption, replyToMessageId);
+            case VIDEO -> deliverVideo(binding, attachment, path, caption, replyToMessageId);
+            case VIDEO_NOTE -> deliverVideoNote(binding, attachment, path, caption, replyToMessageId);
+            case VOICE -> deliverVoice(binding, attachment, path, caption, replyToMessageId);
+            case DOCUMENT -> telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption, replyToMessageId);
         };
     }
 
-    private String deliverPhoto(TransportBinding binding, ConversationAttachment attachment, java.nio.file.Path path, String caption) {
+    private String deliverPhoto(
+        TransportBinding binding,
+        ConversationAttachment attachment,
+        java.nio.file.Path path,
+        String caption,
+        String replyToMessageId
+    ) {
         if (shouldSendAsPhoto(attachment)) {
             try {
-                return telegramBotClient.sendPhoto(binding.getExternalChatId(), path, caption);
+                return telegramBotClient.sendPhoto(binding.getExternalChatId(), path, caption, replyToMessageId);
             } catch (Exception ignored) {
                 // Fall through to document.
             }
         }
-        return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption);
+        return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption, replyToMessageId);
     }
 
-    private String deliverVideo(TransportBinding binding, ConversationAttachment attachment, java.nio.file.Path path, String caption) {
+    private String deliverVideo(
+        TransportBinding binding,
+        ConversationAttachment attachment,
+        java.nio.file.Path path,
+        String caption,
+        String replyToMessageId
+    ) {
         if (shouldSendAsVideo(attachment)) {
             try {
-                return telegramBotClient.sendVideo(binding.getExternalChatId(), path, caption);
+                return telegramBotClient.sendVideo(binding.getExternalChatId(), path, caption, replyToMessageId);
             } catch (Exception ignored) {
                 // Fall through to document.
             }
         }
-        return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption);
+        return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption, replyToMessageId);
     }
 
     private String deliverVideoNote(
         TransportBinding binding,
         ConversationAttachment attachment,
         java.nio.file.Path path,
-        String caption
+        String caption,
+        String replyToMessageId
     ) {
         if (shouldSendAsVideo(attachment)) {
             try {
-                return telegramBotClient.sendVideoNote(binding.getExternalChatId(), path);
+                return telegramBotClient.sendVideoNote(binding.getExternalChatId(), path, replyToMessageId);
             } catch (Exception ignored) {
                 // Fall through to regular video or document.
             }
             try {
-                return telegramBotClient.sendVideo(binding.getExternalChatId(), path, caption);
+                return telegramBotClient.sendVideo(binding.getExternalChatId(), path, caption, replyToMessageId);
             } catch (Exception ignored) {
                 // Fall through to document.
             }
         }
-        return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption);
+        return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption, replyToMessageId);
     }
 
-    private String deliverVoice(TransportBinding binding, ConversationAttachment attachment, java.nio.file.Path path, String caption) {
+    private String deliverVoice(
+        TransportBinding binding,
+        ConversationAttachment attachment,
+        java.nio.file.Path path,
+        String caption,
+        String replyToMessageId
+    ) {
         if (shouldSendAsVoice(attachment)) {
             try {
-                return telegramBotClient.sendVoice(binding.getExternalChatId(), path, caption);
+                return telegramBotClient.sendVoice(binding.getExternalChatId(), path, caption, replyToMessageId);
             } catch (Exception ignored) {
                 // Fall through to document.
             }
         }
-        return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption);
+        return telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption, replyToMessageId);
+    }
+
+    private String resolveReplyTargetMessageId(TransportBinding binding, ConversationMessage message) {
+        ConversationMessage replyToMessage = message.getReplyToMessage();
+        if (replyToMessage == null) {
+            return null;
+        }
+
+        if (replyToMessage.getSourceTransport() == BridgeTransport.TELEGRAM
+            && binding.getExternalChatId().equals(replyToMessage.getSourceChatId())
+            && replyToMessage.getSourceMessageId() != null
+            && !replyToMessage.getSourceMessageId().isBlank()
+            && !replyToMessage.getSourceMessageId().startsWith("album:")) {
+            return replyToMessage.getSourceMessageId();
+        }
+
+        return deliveryRecordRepository.findByConversationMessage_IdAndTargetTransportAndTargetChatId(
+                replyToMessage.getId(),
+                BridgeTransport.TELEGRAM,
+                binding.getExternalChatId()
+            )
+            .map(DeliveryRecord::getTargetMessageId)
+            .orElse(null);
     }
 
     private boolean shouldSendAsPhoto(ConversationAttachment attachment) {

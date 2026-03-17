@@ -54,6 +54,10 @@ public class ConversationMessage {
     @Column(nullable = false, columnDefinition = "text")
     private String body;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reply_to_message_id")
+    private ConversationMessage replyToMessage;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -74,6 +78,32 @@ public class ConversationMessage {
         String body,
         Instant createdAt
     ) {
+        this(
+            conversation,
+            sourceTransport,
+            sourceChatId,
+            sourceMessageId,
+            authorUser,
+            authorExternalId,
+            authorDisplayName,
+            body,
+            null,
+            createdAt
+        );
+    }
+
+    public ConversationMessage(
+        Conversation conversation,
+        BridgeTransport sourceTransport,
+        String sourceChatId,
+        String sourceMessageId,
+        UserAccount authorUser,
+        String authorExternalId,
+        String authorDisplayName,
+        String body,
+        ConversationMessage replyToMessage,
+        Instant createdAt
+    ) {
         this.conversation = conversation;
         this.sourceTransport = sourceTransport;
         this.sourceChatId = sourceChatId;
@@ -82,6 +112,7 @@ public class ConversationMessage {
         this.authorExternalId = authorExternalId;
         this.authorDisplayName = authorDisplayName;
         this.body = body;
+        this.replyToMessage = replyToMessage;
         this.createdAt = createdAt;
     }
 
@@ -119,6 +150,10 @@ public class ConversationMessage {
 
     public String getBody() {
         return body;
+    }
+
+    public ConversationMessage getReplyToMessage() {
+        return replyToMessage;
     }
 
     public Instant getCreatedAt() {

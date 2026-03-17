@@ -587,7 +587,10 @@ button:disabled {
 }
 
 .sidebar-drawer[data-open="true"] {
-    max-height: 640px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    max-height: min(72dvh, 720px);
     opacity: 1;
     transform: translateY(0);
     pointer-events: auto;
@@ -1120,9 +1123,32 @@ button:disabled {
     margin-bottom: 0;
 }
 
+.message-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .message-author {
     color: var(--accent-strong);
     font-size: 0.8rem;
+}
+
+.message-reply-button {
+    min-width: 28px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(12, 12, 12, 0.7);
+    color: var(--muted);
+    font-size: 0.86rem;
+}
+
+.message-reply-button:hover {
+    color: var(--accent-strong);
+    border-color: rgba(30, 215, 96, 0.2);
 }
 
 .transport-pill {
@@ -1132,11 +1158,49 @@ button:disabled {
     font-size: 0.72rem;
 }
 
+.message-reply-snippet {
+    width: 100%;
+    padding: 8px 10px;
+    display: grid;
+    gap: 2px;
+    justify-items: start;
+    border-radius: var(--radius-sm);
+    border-left: 2px solid rgba(30, 215, 96, 0.48);
+    background: rgba(255, 255, 255, 0.04);
+    text-align: left;
+}
+
+.message-reply-author {
+    color: var(--accent-strong);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.message-reply-excerpt {
+    color: var(--muted);
+    font-size: 0.76rem;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
 .message-body {
     line-height: 1.42;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
+}
+
+.message-mention {
+    color: #d0ffdf;
+    font-weight: 700;
+}
+
+.message-mention-self {
+    color: #0d1b12;
+    background: rgba(30, 215, 96, 0.9);
+    padding: 1px 5px;
+    border-radius: 999px;
 }
 
 .message-link {
@@ -1292,6 +1356,11 @@ button:disabled {
     font-size: 0.74rem;
 }
 
+.message-row.is-highlighted .message-card {
+    border-color: rgba(30, 215, 96, 0.54);
+    box-shadow: 0 0 0 1px rgba(30, 215, 96, 0.24), 0 12px 26px rgba(0, 0, 0, 0.22);
+}
+
 .message-form {
     padding: 14px 16px 16px;
     display: flex;
@@ -1392,6 +1461,75 @@ button:disabled {
 .composer-hint {
     color: var(--muted);
     font-size: 0.8rem;
+}
+
+.reply-composer-preview {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    border-left: 2px solid rgba(30, 215, 96, 0.5);
+    background: rgba(30, 30, 30, 0.96);
+}
+
+.reply-composer-copy {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.reply-composer-author {
+    color: var(--accent-strong);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.reply-composer-excerpt {
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.mention-suggestions {
+    display: grid;
+    gap: 4px;
+    padding: 6px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(18, 18, 18, 0.98);
+    max-height: 220px;
+    overflow: auto;
+}
+
+.mention-suggestion {
+    width: 100%;
+    padding: 8px 10px;
+    display: grid;
+    gap: 2px;
+    justify-items: start;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    text-align: left;
+}
+
+.mention-suggestion.active,
+.mention-suggestion:hover {
+    background: rgba(30, 215, 96, 0.12);
+    border-color: rgba(30, 215, 96, 0.14);
+}
+
+.mention-suggestion-name {
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.mention-suggestion-handle {
+    color: var(--muted);
+    font-size: 0.78rem;
 }
 
 .recorded-voice-preview {
@@ -1777,6 +1915,10 @@ button:disabled {
         gap: 8px;
     }
 
+    .message-actions {
+        gap: 5px;
+    }
+
     .message-author {
         min-width: 0;
         overflow-wrap: anywhere;
@@ -1880,6 +2022,14 @@ button:disabled {
 
     .message-form-actions .composer-hint {
         display: none;
+    }
+
+    .reply-composer-preview {
+        padding: 9px 10px;
+    }
+
+    .mention-suggestions {
+        max-height: 180px;
     }
 
     .members-panel {

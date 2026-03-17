@@ -62,15 +62,19 @@ public class TelegramBotClient {
     }
 
     public String sendMessage(String chatId, String text) {
-        return sendMessage(chatId, text, null);
+        return sendMessage(chatId, text, null, null);
     }
 
     public String sendMessage(String chatId, String text, Map<String, Object> replyMarkup) {
+        return sendMessage(chatId, text, replyMarkup, null);
+    }
+
+    public String sendMessage(String chatId, String text, Map<String, Object> replyMarkup, String replyToMessageId) {
         ensureConfigured();
         TelegramApiResponse<TelegramMessageDto> response = botRestClient.post()
             .uri("/sendMessage")
             .contentType(MediaType.APPLICATION_JSON)
-            .body(new SendMessageRequest(chatId, text, replyMarkup))
+            .body(new SendMessageRequest(chatId, text, replyMarkup, toLongOrNull(replyToMessageId)))
             .retrieve()
             .body(new ParameterizedTypeReference<>() {
             });
@@ -99,26 +103,50 @@ public class TelegramBotClient {
     }
 
     public String sendPhoto(String chatId, Path path, String caption) {
-        return sendMultipartMedia("/sendPhoto", "photo", chatId, path, caption);
+        return sendPhoto(chatId, path, caption, null);
     }
 
     public String sendVideo(String chatId, Path path, String caption) {
-        return sendMultipartMedia("/sendVideo", "video", chatId, path, caption);
+        return sendVideo(chatId, path, caption, null);
     }
 
     public String sendVoice(String chatId, Path path, String caption) {
-        return sendMultipartMedia("/sendVoice", "voice", chatId, path, caption);
+        return sendVoice(chatId, path, caption, null);
     }
 
     public String sendVideoNote(String chatId, Path path) {
-        return sendMultipartMedia("/sendVideoNote", "video_note", chatId, path, null);
+        return sendVideoNote(chatId, path, null);
     }
 
     public String sendDocument(String chatId, Path path, String caption) {
-        return sendMultipartMedia("/sendDocument", "document", chatId, path, caption);
+        return sendDocument(chatId, path, caption, null);
     }
 
     public String sendMediaGroup(String chatId, List<TelegramMediaGroupItem> items, String caption) {
+        return sendMediaGroup(chatId, items, caption, null);
+    }
+
+    public String sendPhoto(String chatId, Path path, String caption, String replyToMessageId) {
+        return sendMultipartMedia("/sendPhoto", "photo", chatId, path, caption, replyToMessageId);
+    }
+
+    public String sendVideo(String chatId, Path path, String caption, String replyToMessageId) {
+        return sendMultipartMedia("/sendVideo", "video", chatId, path, caption, replyToMessageId);
+    }
+
+    public String sendVoice(String chatId, Path path, String caption, String replyToMessageId) {
+        return sendMultipartMedia("/sendVoice", "voice", chatId, path, caption, replyToMessageId);
+    }
+
+    public String sendVideoNote(String chatId, Path path, String replyToMessageId) {
+        return sendMultipartMedia("/sendVideoNote", "video_note", chatId, path, null, replyToMessageId);
+    }
+
+    public String sendDocument(String chatId, Path path, String caption, String replyToMessageId) {
+        return sendMultipartMedia("/sendDocument", "document", chatId, path, caption, replyToMessageId);
+    }
+
+    public String sendMediaGroup(String chatId, List<TelegramMediaGroupItem> items, String caption, String replyToMessageId) {
         ensureConfigured();
         if (items == null || items.isEmpty()) {
             throw new IllegalArgumentException("Telegram media group items are required");
@@ -131,6 +159,9 @@ public class TelegramBotClient {
             List<Map<String, Object>> media = new ArrayList<>();
 
             textParts.add(new MultipartTextPart("chat_id", chatId));
+            if (replyToMessageId != null && !replyToMessageId.isBlank()) {
+                textParts.add(new MultipartTextPart("reply_to_message_id", replyToMessageId));
+            }
             for (int index = 0; index < items.size(); index++) {
                 TelegramMediaGroupItem item = items.get(index);
                 String attachName = "file" + index;
@@ -221,7 +252,14 @@ public class TelegramBotClient {
         }
     }
 
-    private String sendMultipartMedia(String endpoint, String partName, String chatId, Path path, String caption) {
+    private String sendMultipartMedia(
+        String endpoint,
+        String partName,
+        String chatId,
+        Path path,
+        String caption,
+        String replyToMessageId
+    ) {
         ensureConfigured();
         try {
             String fileName = path.getFileName() == null ? "attachment.bin" : path.getFileName().toString();
@@ -235,6 +273,9 @@ public class TelegramBotClient {
             textParts.add(new MultipartTextPart("chat_id", chatId));
             if (caption != null && !caption.isBlank()) {
                 textParts.add(new MultipartTextPart("caption", caption));
+            }
+            if (replyToMessageId != null && !replyToMessageId.isBlank()) {
+                textParts.add(new MultipartTextPart("reply_to_message_id", replyToMessageId));
             }
             String responseBody = sendMultipartRequest(
                 endpoint,
@@ -360,6 +401,18 @@ public class TelegramBotClient {
         return value.replace("\"", "\\\"");
     }
 
+    private Long toLongOrNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
     public record TelegramMediaGroupItem(
         String type,
         Path path
@@ -388,8 +441,13 @@ record SendMessageRequest(
     String chatId,
     String text,
     @JsonProperty("reply_markup")
-    Map<String, Object> replyMarkup
+    Map<String, Object> replyMarkup,
+    @JsonProperty("reply_to_message_id")
+    Long replyToMessageId
 ) {
+    SendMessageRequest(String chatId, String text, Map<String, Object> replyMarkup) {
+        this(chatId, text, replyMarkup, null);
+    }
 }
 
 record AnswerCallbackQueryRequest(
@@ -432,8 +490,26 @@ record TelegramMessageDto(
     TelegramVideoDto video,
     @JsonProperty("video_note")
     TelegramVideoNoteDto videoNote,
-    TelegramVoiceDto voice
+    TelegramVoiceDto voice,
+    @JsonProperty("reply_to_message")
+    TelegramMessageDto replyToMessage
 ) {
+    TelegramMessageDto(
+        Long messageId,
+        TelegramChatDto chat,
+        TelegramUserDto from,
+        Long date,
+        String text,
+        String caption,
+        String mediaGroupId,
+        List<TelegramPhotoSizeDto> photo,
+        TelegramDocumentDto document,
+        TelegramVideoDto video,
+        TelegramVideoNoteDto videoNote,
+        TelegramVoiceDto voice
+    ) {
+        this(messageId, chat, from, date, text, caption, mediaGroupId, photo, document, video, videoNote, voice, null);
+    }
 
     Instant sentAt() {
         return date == null ? Instant.now() : Instant.ofEpochSecond(date);

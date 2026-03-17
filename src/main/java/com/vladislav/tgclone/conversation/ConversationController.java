@@ -80,7 +80,8 @@ public class ConversationController {
         ConversationMessage message = conversationService.createInternalMessage(
             authenticatedUser,
             conversationId,
-            request.body()
+            request.body(),
+            request.replyToMessageId()
         );
         messageRelayService.relayInternalMessage(message);
         return ResponseEntity.status(HttpStatus.CREATED).body(ConversationMessageResponse.from(message));
@@ -94,6 +95,7 @@ public class ConversationController {
         @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
         @PathVariable Long conversationId,
         @RequestParam(required = false) String body,
+        @RequestParam(required = false) Long replyToMessageId,
         @RequestParam(name = "files", required = false) List<MultipartFile> files,
         @RequestParam(name = "sendAsVideoNote", defaultValue = "false") boolean sendAsVideoNote
     ) {
@@ -102,6 +104,7 @@ public class ConversationController {
             authenticatedUser,
             conversationId,
             body,
+            replyToMessageId,
             attachments
         );
         messageRelayService.relayInternalMessage(message);
@@ -237,7 +240,8 @@ record CreateConversationRequest(
 
 record CreateConversationMessageRequest(
     @NotBlank(message = "body is required")
-    String body
+    String body,
+    Long replyToMessageId
 ) {
 }
 
@@ -275,6 +279,7 @@ record ConversationMessageResponse(
     String authorExternalId,
     String authorDisplayName,
     String body,
+    ConversationReplyResponse replyTo,
     List<ConversationAttachmentResponse> attachments,
     Instant createdAt
 ) {
@@ -288,10 +293,51 @@ record ConversationMessageResponse(
             message.getAuthorExternalId(),
             message.getAuthorDisplayName(),
             message.getBody(),
+            ConversationReplyResponse.from(message.getReplyToMessage()),
             message.getAttachments().stream()
                 .map(ConversationAttachmentResponse::from)
                 .toList(),
             message.getCreatedAt()
+        );
+    }
+}
+
+record ConversationReplyResponse(
+    Long id,
+    Long authorUserId,
+    String authorDisplayName,
+    String body,
+    List<ConversationReplyAttachmentResponse> attachments,
+    Instant createdAt
+) {
+
+    static ConversationReplyResponse from(ConversationMessage message) {
+        if (message == null) {
+            return null;
+        }
+
+        return new ConversationReplyResponse(
+            message.getId(),
+            message.getAuthorUser() == null ? null : message.getAuthorUser().getId(),
+            message.getAuthorDisplayName(),
+            message.getBody(),
+            message.getAttachments().stream()
+                .map(ConversationReplyAttachmentResponse::from)
+                .toList(),
+            message.getCreatedAt()
+        );
+    }
+}
+
+record ConversationReplyAttachmentResponse(
+    String kind,
+    String fileName
+) {
+
+    static ConversationReplyAttachmentResponse from(ConversationAttachment attachment) {
+        return new ConversationReplyAttachmentResponse(
+            attachment.getKind().name(),
+            attachment.getOriginalFilename()
         );
     }
 }

@@ -17,6 +17,7 @@ import com.vladislav.tgclone.security.AuthenticatedUser;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -87,6 +88,54 @@ class ConversationServiceTest {
         assertEquals("Main chat", membership.getConversation().getTitle());
         assertEquals(ConversationMemberRole.OWNER, membership.getRole());
         assertEquals(7L, membership.getUserAccount().getId());
+    }
+
+    @Test
+    void createInternalMessageLinksReplyToExistingMessage() {
+        UserAccount author = new UserAccount("main", "alice", "Alice", true, Instant.EPOCH);
+        ReflectionTestUtils.setField(author, "id", 7L);
+        AuthenticatedUser authenticatedUser = AuthenticatedUser.from(author);
+
+        Conversation conversation = new Conversation("main", "Main chat", Instant.EPOCH);
+        ReflectionTestUtils.setField(conversation, "id", 15L);
+
+        ConversationMember membership = new ConversationMember(
+            conversation,
+            author,
+            null,
+            ConversationMemberRole.OWNER,
+            Instant.EPOCH
+        );
+        ConversationMessage repliedMessage = new ConversationMessage(
+            conversation,
+            com.vladislav.tgclone.bridge.BridgeTransport.INTERNAL,
+            "15",
+            null,
+            author,
+            "7",
+            "Alice",
+            "Первое",
+            Instant.EPOCH
+        );
+        ReflectionTestUtils.setField(repliedMessage, "id", 99L);
+
+        when(conversationMemberRepository.findByConversation_IdAndUserAccount_Id(15L, 7L))
+            .thenReturn(Optional.of(membership));
+        when(userAccountService.requireActiveUser(7L)).thenReturn(author);
+        when(conversationMessageRepository.findByIdAndConversation_Id(99L, 15L))
+            .thenReturn(Optional.of(repliedMessage));
+        when(conversationMessageRepository.save(any(ConversationMessage.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ConversationMessage created = conversationService.createInternalMessage(
+            authenticatedUser,
+            15L,
+            "Ответ",
+            99L,
+            List.of()
+        );
+
+        assertSame(repliedMessage, created.getReplyToMessage());
+        verify(conversationAttachmentService).storeDrafts(created, List.of());
     }
 
     @Test

@@ -1,7 +1,7 @@
 package com.vladislav.tgclone.bridge;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,7 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
-class MessageRelayServiceTest {
+class TelegramReplyResolutionTest {
 
     @Mock
     private TransportBindingRepository transportBindingRepository;
@@ -65,100 +65,107 @@ class MessageRelayServiceTest {
             conversationMentionService,
             userAccountService,
             List.of(telegramGateway),
-            Clock.fixed(Instant.parse("2026-03-16T12:00:00Z"), ZoneOffset.UTC)
+            Clock.fixed(Instant.parse("2026-03-17T10:00:00Z"), ZoneOffset.UTC)
         );
     }
 
     @Test
-    void relayInternalMessagePublishesAndDeliversToTelegramBindings() {
-        Conversation conversation = new Conversation("demo", "Main", Instant.EPOCH);
-        ReflectionTestUtils.setField(conversation, "id", 1L);
-
-        ConversationMessage message = new ConversationMessage(
-            conversation,
-            BridgeTransport.INTERNAL,
-            "1",
-            null,
-            null,
-            "vlad",
-            "Vlad",
-            "Hello",
-            Instant.EPOCH
-        );
-        ReflectionTestUtils.setField(message, "id", 10L);
-
-        TransportBinding binding = new TransportBinding(
-            conversation,
-            BridgeTransport.TELEGRAM,
-            "-100100",
-            true,
-            Instant.EPOCH
-        );
-        ReflectionTestUtils.setField(binding, "id", 5L);
-
-        when(transportBindingRepository.findAllByConversation_IdAndActiveTrue(1L)).thenReturn(List.of(binding));
-        when(deliveryRecordRepository.existsByConversationMessage_IdAndTargetTransportAndTargetChatId(
-            10L,
-            BridgeTransport.TELEGRAM,
-            "-100100"
-        )).thenReturn(false);
-        when(telegramGateway.deliver(binding, message)).thenReturn("900");
-
-        messageRelayService.relayInternalMessage(message);
-
-        verify(conversationEventPublisher).publish(message);
-        verify(telegramGateway).deliver(binding, message);
-        verify(deliveryRecordRepository).save(any(DeliveryRecord.class));
-    }
-
-    @Test
-    void processTelegramInboundSkipsDuplicateMessages() {
-        Conversation conversation = new Conversation("demo", "Main", Instant.EPOCH);
-        ReflectionTestUtils.setField(conversation, "id", 1L);
+    void processTelegramInboundResolvesReplyFromExistingTelegramDeliveryRecord() {
+        Conversation conversation = new Conversation("main", "Room", Instant.EPOCH);
+        ReflectionTestUtils.setField(conversation, "id", 15L);
 
         TransportBinding sourceBinding = new TransportBinding(
             conversation,
             BridgeTransport.TELEGRAM,
-            "-100100",
+            "-100777",
             true,
             Instant.EPOCH
         );
-        ReflectionTestUtils.setField(sourceBinding, "id", 7L);
 
-        ConversationMessage existingMessage = new ConversationMessage(
+        ConversationMessage repliedMessage = new ConversationMessage(
             conversation,
-            BridgeTransport.TELEGRAM,
-            "-100100",
-            "500",
+            BridgeTransport.INTERNAL,
+            "15",
             null,
-            "42",
+            null,
+            "7",
             "Alice",
-            "Hi",
+            "Первое сообщение",
+            Instant.EPOCH
+        );
+        ReflectionTestUtils.setField(repliedMessage, "id", 44L);
+
+        DeliveryRecord deliveryRecord = new DeliveryRecord(
+            repliedMessage,
+            BridgeTransport.TELEGRAM,
+            "-100777",
+            "900",
             Instant.EPOCH
         );
 
-        when(transportBindingRepository.findByTransportAndExternalChatIdAndActiveTrue(
+        ConversationMessage saved = new ConversationMessage(
+            conversation,
             BridgeTransport.TELEGRAM,
-            "-100100"
-        )).thenReturn(Optional.of(sourceBinding));
+            "-100777",
+            "901",
+            null,
+            "42",
+            "Bob",
+            "Ответ",
+            repliedMessage,
+            Instant.EPOCH
+        );
+
+        when(transportBindingRepository.findByTransportAndExternalChatIdAndActiveTrue(BridgeTransport.TELEGRAM, "-100777"))
+            .thenReturn(Optional.of(sourceBinding));
         when(conversationMessageRepository.findBySourceTransportAndSourceChatIdAndSourceMessageId(
             BridgeTransport.TELEGRAM,
-            "-100100",
-            "500"
-        )).thenReturn(Optional.of(existingMessage));
+            "-100777",
+            "901"
+        )).thenReturn(Optional.empty());
+        when(deliveryRecordRepository.findByTargetTransportAndTargetChatIdAndTargetMessageId(
+            BridgeTransport.TELEGRAM,
+            "-100777",
+            "900"
+        )).thenReturn(Optional.of(deliveryRecord));
+        when(conversationMentionService.normalizeTelegramMentions(15L, "Ответ")).thenReturn("Ответ");
+        when(conversationService.createExternalMessage(
+            eq(15L),
+            eq(BridgeTransport.TELEGRAM),
+            eq("-100777"),
+            eq("901"),
+            eq(null),
+            eq("42"),
+            eq("Bob"),
+            eq("Ответ"),
+            eq(Instant.parse("2026-03-17T10:00:00Z")),
+            eq(repliedMessage),
+            any()
+        )).thenReturn(saved);
 
         messageRelayService.processTelegramInbound(new TelegramInboundEnvelope(
-            "-100100",
-            "500",
+            "-100777",
+            "901",
             "42",
-            "Alice",
-            "Hi",
-            Instant.EPOCH,
+            "Bob",
+            "Ответ",
+            Instant.parse("2026-03-17T10:00:00Z"),
+            "900",
             List.of()
         ));
 
-        verify(conversationService, never()).createExternalMessage(any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
-        verify(conversationEventPublisher, never()).publish(any());
-        verify(telegramGateway, never()).deliver(any(), any());
+        verify(conversationService).createExternalMessage(
+            eq(15L),
+            eq(BridgeTransport.TELEGRAM),
+            eq("-100777"),
+            eq("901"),
+            eq(null),
+            eq("42"),
+            eq("Bob"),
+            eq("Ответ"),
+            eq(Instant.parse("2026-03-17T10:00:00Z")),
+            eq(repliedMessage),
+            any()
+        );
     }
 }

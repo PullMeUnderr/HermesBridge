@@ -128,7 +128,9 @@ public class ConversationService {
     @Transactional(readOnly = true)
     public List<ConversationMessage> listMessages(AuthenticatedUser authenticatedUser, Long conversationId) {
         requireMembership(authenticatedUser, conversationId);
-        return conversationMessageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversationId);
+        List<ConversationMessage> messages = conversationMessageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversationId);
+        messages.forEach(this::materializeReplyPreview);
+        return messages;
     }
 
     @Transactional
@@ -137,7 +139,17 @@ public class ConversationService {
         Long conversationId,
         String body
     ) {
-        return createInternalMessage(authenticatedUser, conversationId, body, List.of());
+        return createInternalMessage(authenticatedUser, conversationId, body, null, List.of());
+    }
+
+    @Transactional
+    public ConversationMessage createInternalMessage(
+        AuthenticatedUser authenticatedUser,
+        Long conversationId,
+        String body,
+        Long replyToMessageId
+    ) {
+        return createInternalMessage(authenticatedUser, conversationId, body, replyToMessageId, List.of());
     }
 
     @Transactional
@@ -147,8 +159,20 @@ public class ConversationService {
         String body,
         List<ConversationAttachmentDraft> attachments
     ) {
+        return createInternalMessage(authenticatedUser, conversationId, body, null, attachments);
+    }
+
+    @Transactional
+    public ConversationMessage createInternalMessage(
+        AuthenticatedUser authenticatedUser,
+        Long conversationId,
+        String body,
+        Long replyToMessageId,
+        List<ConversationAttachmentDraft> attachments
+    ) {
         Conversation conversation = requireMembership(authenticatedUser, conversationId).getConversation();
         UserAccount author = userAccountService.requireActiveUser(authenticatedUser.userId());
+        ConversationMessage replyToMessage = resolveReplyToMessage(conversation.getId(), replyToMessageId);
         String normalizedBody = normalizeBody(body, attachments);
         ConversationMessage message = new ConversationMessage(
             conversation,
@@ -159,10 +183,12 @@ public class ConversationService {
             String.valueOf(author.getId()),
             author.getDisplayName(),
             normalizedBody,
+            replyToMessage,
             clock.instant()
         );
         ConversationMessage savedMessage = conversationMessageRepository.save(message);
         conversationAttachmentService.storeDrafts(savedMessage, attachments);
+        materializeReplyPreview(savedMessage);
         return savedMessage;
     }
 
@@ -179,6 +205,35 @@ public class ConversationService {
         java.time.Instant createdAt,
         List<ConversationAttachmentDraft> attachments
     ) {
+        return createExternalMessage(
+            conversationId,
+            sourceTransport,
+            sourceChatId,
+            sourceMessageId,
+            authorUser,
+            authorId,
+            authorName,
+            body,
+            createdAt,
+            null,
+            attachments
+        );
+    }
+
+    @Transactional
+    public ConversationMessage createExternalMessage(
+        Long conversationId,
+        BridgeTransport sourceTransport,
+        String sourceChatId,
+        String sourceMessageId,
+        UserAccount authorUser,
+        String authorId,
+        String authorName,
+        String body,
+        java.time.Instant createdAt,
+        ConversationMessage replyToMessage,
+        List<ConversationAttachmentDraft> attachments
+    ) {
         Conversation conversation = getConversation(conversationId);
         ConversationMessage message = new ConversationMessage(
             conversation,
@@ -189,10 +244,12 @@ public class ConversationService {
             normalizeNullable(authorId),
             normalizeAuthorName(authorName),
             normalizeBody(body, attachments),
+            replyToMessage,
             createdAt == null ? clock.instant() : createdAt
         );
         ConversationMessage savedMessage = conversationMessageRepository.save(message);
         conversationAttachmentService.storeDrafts(savedMessage, attachments);
+        materializeReplyPreview(savedMessage);
         return savedMessage;
     }
 
@@ -302,6 +359,35 @@ public class ConversationService {
             return "Unknown";
         }
         return value.trim();
+    }
+
+    private ConversationMessage resolveReplyToMessage(Long conversationId, Long replyToMessageId) {
+        if (replyToMessageId == null) {
+            return null;
+        }
+
+        return conversationMessageRepository.findByIdAndConversation_Id(replyToMessageId, conversationId)
+            .orElseThrow(() -> new NotFoundException("Message %s not found".formatted(replyToMessageId)));
+    }
+
+    private void materializeReplyPreview(ConversationMessage message) {
+        if (message == null) {
+            return;
+        }
+
+        ConversationMessage replyToMessage = message.getReplyToMessage();
+        if (replyToMessage == null) {
+            return;
+        }
+
+        replyToMessage.getId();
+        replyToMessage.getAuthorDisplayName();
+        replyToMessage.getBody();
+        replyToMessage.getCreatedAt();
+        if (replyToMessage.getAuthorUser() != null) {
+            replyToMessage.getAuthorUser().getId();
+        }
+        replyToMessage.getAttachments().size();
     }
 
     private String normalizeBody(String value, List<ConversationAttachmentDraft> attachments) {

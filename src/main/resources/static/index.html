@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/app.css?v=20260317-rightdrawer-1">
+    <link rel="stylesheet" href="/app.css?v=20260317-reply-mentions-1">
 </head>
 <body>
 <div class="page-shell">
@@ -347,7 +347,15 @@
                                         ></video>
                                     </div>
                                 </div>
+                                <div id="replyComposerPreview" class="reply-composer-preview hidden">
+                                    <div class="reply-composer-copy">
+                                        <div id="replyComposerAuthor" class="reply-composer-author">Ответ</div>
+                                        <div id="replyComposerExcerpt" class="reply-composer-excerpt"></div>
+                                    </div>
+                                    <button id="cancelReplyButton" type="button" class="ghost-button compact-button" aria-label="Отменить ответ">×</button>
+                                </div>
                                 <textarea id="messageInput" rows="2" placeholder="Напиши сообщение..."></textarea>
+                                <div id="mentionSuggestions" class="mention-suggestions hidden"></div>
                                 <div class="message-form-actions">
                                     <span class="composer-hint">Enter отправляет, Shift+Enter переносит строку</span>
                                     <button id="sendMessageButton" type="submit" class="primary-button">Отправить</button>
@@ -385,6 +393,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/app.js?v=20260317-rightdrawer-1" defer></script>
+<script src="/app.js?v=20260317-reply-mentions-1" defer></script>
 </body>
 </html>

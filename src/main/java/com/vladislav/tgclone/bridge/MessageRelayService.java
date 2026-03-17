@@ -4,6 +4,7 @@ import com.vladislav.tgclone.account.UserAccount;
 import com.vladislav.tgclone.account.UserAccountService;
 import com.vladislav.tgclone.common.NotFoundException;
 import com.vladislav.tgclone.conversation.ConversationEventPublisher;
+import com.vladislav.tgclone.conversation.ConversationMentionService;
 import com.vladislav.tgclone.conversation.ConversationMessage;
 import com.vladislav.tgclone.conversation.ConversationMessageRepository;
 import com.vladislav.tgclone.conversation.ConversationService;
@@ -26,6 +27,7 @@ public class MessageRelayService {
     private final DeliveryRecordRepository deliveryRecordRepository;
     private final ConversationService conversationService;
     private final ConversationEventPublisher conversationEventPublisher;
+    private final ConversationMentionService conversationMentionService;
     private final UserAccountService userAccountService;
     private final Map<BridgeTransport, DeliveryGateway> deliveryGateways;
     private final Clock clock;
@@ -36,6 +38,7 @@ public class MessageRelayService {
         DeliveryRecordRepository deliveryRecordRepository,
         ConversationService conversationService,
         ConversationEventPublisher conversationEventPublisher,
+        ConversationMentionService conversationMentionService,
         UserAccountService userAccountService,
         List<DeliveryGateway> deliveryGateways,
         Clock clock
@@ -45,6 +48,7 @@ public class MessageRelayService {
         this.deliveryRecordRepository = deliveryRecordRepository;
         this.conversationService = conversationService;
         this.conversationEventPublisher = conversationEventPublisher;
+        this.conversationMentionService = conversationMentionService;
         this.userAccountService = userAccountService;
         this.deliveryGateways = deliveryGateways.stream()
             .collect(Collectors.toMap(DeliveryGateway::transport, Function.identity()));
@@ -76,6 +80,7 @@ public class MessageRelayService {
         }
 
         UserAccount authorUser = userAccountService.findByTelegramUserId(envelope.authorId()).orElse(null);
+        ConversationMessage replyToMessage = resolveTelegramReplyTarget(sourceBinding, envelope.replyToExternalMessageId());
         ConversationMessage savedMessage = conversationService.createExternalMessage(
             sourceBinding.getConversation().getId(),
             BridgeTransport.TELEGRAM,
@@ -84,13 +89,36 @@ public class MessageRelayService {
             authorUser,
             envelope.authorId(),
             envelope.authorDisplayName(),
-            envelope.body(),
+            conversationMentionService.normalizeTelegramMentions(
+                sourceBinding.getConversation().getId(),
+                envelope.body()
+            ),
             envelope.createdAt(),
+            replyToMessage,
             envelope.attachments()
         );
 
         conversationEventPublisher.publish(savedMessage);
         fanOutToExternalBindings(savedMessage, sourceBinding.getId());
+    }
+
+    private ConversationMessage resolveTelegramReplyTarget(TransportBinding sourceBinding, String replyToExternalMessageId) {
+        if (replyToExternalMessageId == null || replyToExternalMessageId.isBlank()) {
+            return null;
+        }
+
+        return conversationMessageRepository.findBySourceTransportAndSourceChatIdAndSourceMessageId(
+                BridgeTransport.TELEGRAM,
+                sourceBinding.getExternalChatId(),
+                replyToExternalMessageId
+            )
+            .or(() -> deliveryRecordRepository.findByTargetTransportAndTargetChatIdAndTargetMessageId(
+                    BridgeTransport.TELEGRAM,
+                    sourceBinding.getExternalChatId(),
+                    replyToExternalMessageId
+                )
+                .map(DeliveryRecord::getConversationMessage))
+            .orElse(null);
     }
 
     private void fanOutToExternalBindings(ConversationMessage message, Long excludedBindingId) {

@@ -17,4 +17,6 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
         String sourceChatId,
         String sourceMessageId
     );
+
+    Optional<ConversationMessage> findByIdAndConversation_Id(Long id, Long conversationId);
 }

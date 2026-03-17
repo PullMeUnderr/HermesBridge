@@ -43,6 +43,12 @@ const state = {
   mobileScreen: "sidebar",
   mobileMembersOpen: false,
   desktopMembersOpen: false,
+  replyToMessageId: null,
+  mentionSuggestions: [],
+  activeMentionRange: null,
+  activeMentionIndex: 0,
+  highlightedMessageId: null,
+  highlightedMessageTimeout: null,
 };
 
 const elements = {
@@ -111,6 +117,11 @@ const elements = {
   videoNoteRecordingTimer: document.getElementById("videoNoteRecordingTimer"),
   videoNoteRecordingVideo: document.getElementById("videoNoteRecordingVideo"),
   switchVideoNoteCameraButton: document.getElementById("switchVideoNoteCameraButton"),
+  replyComposerPreview: document.getElementById("replyComposerPreview"),
+  replyComposerAuthor: document.getElementById("replyComposerAuthor"),
+  replyComposerExcerpt: document.getElementById("replyComposerExcerpt"),
+  cancelReplyButton: document.getElementById("cancelReplyButton"),
+  mentionSuggestions: document.getElementById("mentionSuggestions"),
   sendMessageButton: document.getElementById("sendMessageButton"),
   toast: document.getElementById("toast"),
 };
@@ -150,6 +161,8 @@ elements.logoutButton.addEventListener("click", () => {
   state.mobileScreen = "sidebar";
   state.mobileMembersOpen = false;
   state.desktopMembersOpen = false;
+  clearReplyTarget();
+  clearMentionSuggestions();
   revokeProfileAvatarPreviewUrl();
   elements.profileAvatarInput.value = "";
   cancelVideoNoteRecording(true);
@@ -474,6 +487,11 @@ elements.clearRecordedVoiceButton.addEventListener("click", () => {
   discardRecordedVoice();
 });
 
+elements.cancelReplyButton.addEventListener("click", () => {
+  clearReplyTarget();
+  elements.messageInput.focus();
+});
+
 elements.messageForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.selectedConversationId || state.messageSubmitInFlight) {
@@ -509,6 +527,9 @@ elements.messageForm.addEventListener("submit", async (event) => {
       if (body) {
         formData.append("body", body);
       }
+      if (state.replyToMessageId) {
+        formData.append("replyToMessageId", String(state.replyToMessageId));
+      }
       if (state.sendAsVideoNote) {
         formData.append("sendAsVideoNote", "true");
       }
@@ -519,9 +540,13 @@ elements.messageForm.addEventListener("submit", async (event) => {
         body: formData,
       });
     } else {
+      const requestBody = { body };
+      if (state.replyToMessageId) {
+        requestBody.replyToMessageId = state.replyToMessageId;
+      }
       await api(`/api/conversations/${state.selectedConversationId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ body }),
+        body: JSON.stringify(requestBody),
       });
     }
 
@@ -536,12 +561,32 @@ elements.messageForm.addEventListener("submit", async (event) => {
 });
 
 elements.messageInput.addEventListener("keydown", async (event) => {
+  if (handleMentionSuggestionsKeydown(event)) {
+    return;
+  }
+
   if (event.key !== "Enter" || event.shiftKey) {
     return;
   }
 
   event.preventDefault();
   elements.messageForm.requestSubmit();
+});
+
+elements.messageInput.addEventListener("input", () => {
+  updateMentionSuggestions();
+});
+
+elements.messageInput.addEventListener("click", () => {
+  updateMentionSuggestions();
+});
+
+document.addEventListener("click", (event) => {
+  if (event.target === elements.messageInput || elements.mentionSuggestions.contains(event.target)) {
+    return;
+  }
+  clearMentionSuggestions();
+  renderMentionSuggestions();
 });
 
 async function bootstrapSession() {
@@ -633,6 +678,9 @@ async function loadMessages(conversationId) {
     resetAttachmentObjectUrls();
     state.currentMessages = messages;
     state.currentMessagesSignature = messagesSignature;
+    if (state.replyToMessageId && !state.currentMessages.some((message) => message.id === state.replyToMessageId)) {
+      clearReplyTarget();
+    }
     renderMessages();
   }
 
@@ -663,6 +711,8 @@ function selectConversation(conversationId) {
   state.currentMembersSignature = "";
   state.mobileMembersOpen = false;
   state.desktopMembersOpen = false;
+  clearReplyTarget();
+  clearMentionSuggestions();
   if (isMobileViewport()) {
     state.mobileScreen = "conversation";
   }
@@ -689,6 +739,8 @@ function render() {
     renderConversationHeader();
     renderWorkspaceHeader();
     renderDrawer();
+    renderReplyComposer();
+    renderMentionSuggestions();
     syncMobileLayout();
     return;
   }
@@ -718,6 +770,8 @@ function render() {
   renderConversationHeader();
   renderWorkspaceHeader();
   renderDrawer();
+  renderReplyComposer();
+  renderMentionSuggestions();
   syncMobileLayout();
 }
 
@@ -983,6 +1037,7 @@ function renderConversationHeader() {
   elements.toggleMembersButton.textContent = membersPanelOpen ? "Скрыть состав" : "Состав";
   elements.createInviteButton.textContent = isMobileViewport() ? "Инвайт" : "Создать инвайт";
   renderComposerState();
+  renderReplyComposer();
 
   if (!hasSelection) {
     elements.messagesList.innerHTML = "";
@@ -1088,13 +1143,17 @@ function renderMessages() {
       const author = mine && state.me ? state.me.displayName : message.authorDisplayName || "Unknown";
       const transport = message.sourceTransport === "INTERNAL" ? "Hermes" : message.sourceTransport;
       return `
-        <div class="message-row ${mine ? "mine" : ""}">
+        <div class="message-row ${mine ? "mine" : ""}" data-message-id="${message.id}">
           ${renderAvatarMarkup(author, mine ? state.me.avatarUrl : null, "message-avatar")}
           <article class="message-card ${mine ? "mine" : ""}">
             <div class="message-topline">
               <div class="message-author">${escapeHtml(author)}</div>
-              <div class="transport-pill">${escapeHtml(transport)}</div>
+              <div class="message-actions">
+                <button class="message-reply-button" type="button" data-reply-message-id="${message.id}" aria-label="Ответить">↩</button>
+                <div class="transport-pill">${escapeHtml(transport)}</div>
+              </div>
             </div>
+            ${renderReplySnippet(message.replyTo)}
             ${renderMessageAttachments(message.attachments || [])}
             ${renderMessageBody(message.body)}
             <div class="message-meta">${formatTimestamp(message.createdAt)}</div>
@@ -1105,6 +1164,7 @@ function renderMessages() {
     .join("");
 
   bindAttachmentActions();
+  bindReplyActions();
   hydrateProtectedImagePreviews(elements.messagesList).catch(() => {});
   hydrateAttachmentPreviews();
   elements.messagesList.scrollTop = elements.messagesList.scrollHeight;
@@ -1250,12 +1310,41 @@ function linkifyMessageLine(line) {
     const startIndex = match.index ?? 0;
     const endIndex = startIndex + matchedUrl.length;
 
-    html += escapeHtml(text.slice(cursor, startIndex));
+    html += renderMentionText(text.slice(cursor, startIndex));
     html += renderMessageLink(matchedUrl);
     cursor = endIndex;
   }
 
-  html += escapeHtml(text.slice(cursor));
+  html += renderMentionText(text.slice(cursor));
+  return html;
+}
+
+function renderMentionText(text) {
+  const raw = String(text ?? "");
+  const mentionPattern = /(^|[^A-Za-z0-9_])@([A-Za-z0-9_]{1,100})/g;
+  let cursor = 0;
+  let html = "";
+
+  for (const match of raw.matchAll(mentionPattern)) {
+    const prefix = match[1] ?? "";
+    const username = match[2] ?? "";
+    const startIndex = match.index ?? 0;
+    const mentionStart = startIndex + prefix.length;
+    const endIndex = mentionStart + username.length + 1;
+    const normalizedUsername = username.toLowerCase();
+    const classes = ["message-mention"];
+
+    if (state.me?.username && normalizedUsername === state.me.username.toLowerCase()) {
+      classes.push("message-mention-self");
+    }
+
+    html += escapeHtml(raw.slice(cursor, startIndex));
+    html += escapeHtml(prefix);
+    html += `<span class="${classes.join(" ")}">@${escapeHtml(username)}</span>`;
+    cursor = endIndex;
+  }
+
+  html += escapeHtml(raw.slice(cursor));
   return html;
 }
 
@@ -1428,6 +1517,54 @@ function renderAttachmentCard(attachment) {
   `;
 }
 
+function renderReplySnippet(reply) {
+  if (!reply) {
+    return "";
+  }
+
+  return `
+    <button
+      class="message-reply-snippet"
+      type="button"
+      data-scroll-message-id="${reply.id}"
+      aria-label="Перейти к сообщению, на которое дан ответ"
+    >
+      <span class="message-reply-author">${escapeHtml(reply.authorDisplayName || "Сообщение")}</span>
+      <span class="message-reply-excerpt">${escapeHtml(summarizeReplyMessage(reply))}</span>
+    </button>
+  `;
+}
+
+function summarizeReplyMessage(message) {
+  if (!message) {
+    return "Сообщение";
+  }
+
+  const body = String(message.body || "").trim();
+  if (body) {
+    return body.length > 96 ? `${body.slice(0, 93)}...` : body;
+  }
+
+  const attachments = message.attachments || [];
+  if (attachments.length === 0) {
+    return "Сообщение";
+  }
+  if (attachments.length > 1) {
+    return `${attachments.length} вложения`;
+  }
+
+  const attachment = attachments[0];
+  const label = attachment.fileName || attachment.kind || "Вложение";
+  const prefix = {
+    PHOTO: "Фото",
+    VIDEO: "Видео",
+    VIDEO_NOTE: "Кружок",
+    VOICE: "Голосовое",
+    DOCUMENT: "Файл",
+  }[attachment.kind] || "Вложение";
+  return `${prefix}: ${label}`;
+}
+
 function bindAttachmentActions() {
   elements.messagesList.querySelectorAll("[data-download-attachment-id]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -1474,6 +1611,235 @@ function bindAttachmentActions() {
     video.addEventListener("ended", syncState);
     syncState();
   });
+}
+
+function bindReplyActions() {
+  elements.messagesList.querySelectorAll("[data-reply-message-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const messageId = Number(button.dataset.replyMessageId);
+      if (!Number.isFinite(messageId)) {
+        return;
+      }
+      state.replyToMessageId = messageId;
+      renderReplyComposer();
+      elements.messageInput.focus();
+    });
+  });
+
+  elements.messagesList.querySelectorAll("[data-scroll-message-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const messageId = Number(button.dataset.scrollMessageId);
+      if (!Number.isFinite(messageId)) {
+        return;
+      }
+      scrollToMessage(messageId);
+    });
+  });
+}
+
+function renderReplyComposer() {
+  const replyTarget = findReplyTargetMessage();
+  const visible = Boolean(replyTarget && state.selectedConversationId);
+  elements.replyComposerPreview.classList.toggle("hidden", !visible);
+
+  if (!visible) {
+    elements.replyComposerAuthor.textContent = "Ответ";
+    elements.replyComposerExcerpt.textContent = "";
+    return;
+  }
+
+  elements.replyComposerAuthor.textContent = `Ответ: ${replyTarget.authorDisplayName || "Сообщение"}`;
+  elements.replyComposerExcerpt.textContent = summarizeReplyMessage(replyTarget);
+}
+
+function clearReplyTarget() {
+  state.replyToMessageId = null;
+  renderReplyComposer();
+}
+
+function findReplyTargetMessage() {
+  if (!state.replyToMessageId) {
+    return null;
+  }
+  return state.currentMessages.find((message) => message.id === state.replyToMessageId) || null;
+}
+
+function scrollToMessage(messageId) {
+  const target = elements.messagesList.querySelector(`[data-message-id="${messageId}"]`);
+  if (!target) {
+    return;
+  }
+
+  target.scrollIntoView({ block: "center", behavior: "smooth" });
+  target.classList.add("is-highlighted");
+  if (state.highlightedMessageTimeout) {
+    window.clearTimeout(state.highlightedMessageTimeout);
+  }
+  state.highlightedMessageId = messageId;
+  state.highlightedMessageTimeout = window.setTimeout(() => {
+    target.classList.remove("is-highlighted");
+    if (state.highlightedMessageId === messageId) {
+      state.highlightedMessageId = null;
+      state.highlightedMessageTimeout = null;
+    }
+  }, 1800);
+}
+
+function updateMentionSuggestions() {
+  if (!state.selectedConversationId) {
+    clearMentionSuggestions();
+    renderMentionSuggestions();
+    return;
+  }
+
+  const cursor = elements.messageInput.selectionStart ?? elements.messageInput.value.length;
+  const beforeCursor = elements.messageInput.value.slice(0, cursor);
+  const match = beforeCursor.match(/(?:^|[\s(])@([A-Za-z0-9_]*)$/);
+  if (!match) {
+    clearMentionSuggestions();
+    renderMentionSuggestions();
+    return;
+  }
+
+  const query = (match[1] || "").toLowerCase();
+  const mentionStart = cursor - query.length - 1;
+  const suggestions = buildMentionSuggestions(query);
+  if (suggestions.length === 0) {
+    clearMentionSuggestions();
+    renderMentionSuggestions();
+    return;
+  }
+
+  state.activeMentionRange = { start: mentionStart, end: cursor, query };
+  state.mentionSuggestions = suggestions;
+  state.activeMentionIndex = Math.min(state.activeMentionIndex, suggestions.length - 1);
+  renderMentionSuggestions();
+}
+
+function buildMentionSuggestions(query) {
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  const seen = new Set();
+  return state.currentMembers
+    .filter((member) => {
+      if (!member?.username) {
+        return false;
+      }
+      const username = member.username.toLowerCase();
+      const displayName = String(member.displayName || "").toLowerCase();
+      return !normalizedQuery
+        || username.startsWith(normalizedQuery)
+        || displayName.includes(normalizedQuery);
+    })
+    .sort((left, right) => {
+      const leftStarts = left.username.toLowerCase().startsWith(normalizedQuery);
+      const rightStarts = right.username.toLowerCase().startsWith(normalizedQuery);
+      if (leftStarts !== rightStarts) {
+        return leftStarts ? -1 : 1;
+      }
+      return left.username.localeCompare(right.username, "ru");
+    })
+    .filter((member) => {
+      const key = member.username.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 6);
+}
+
+function renderMentionSuggestions() {
+  const visible = state.mentionSuggestions.length > 0 && Boolean(state.activeMentionRange);
+  elements.mentionSuggestions.classList.toggle("hidden", !visible);
+
+  if (!visible) {
+    elements.mentionSuggestions.innerHTML = "";
+    return;
+  }
+
+  elements.mentionSuggestions.innerHTML = state.mentionSuggestions
+    .map((suggestion, index) => `
+      <button
+        class="mention-suggestion ${index === state.activeMentionIndex ? "active" : ""}"
+        type="button"
+        data-mention-username="${escapeHtml(suggestion.username)}"
+      >
+        <span class="mention-suggestion-name">${escapeHtml(suggestion.displayName || suggestion.username)}</span>
+        <span class="mention-suggestion-handle">@${escapeHtml(suggestion.username)}</span>
+      </button>
+    `)
+    .join("");
+
+  elements.mentionSuggestions.querySelectorAll("[data-mention-username]").forEach((button) => {
+    button.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      applyMentionSuggestion(button.dataset.mentionUsername);
+    });
+  });
+}
+
+function clearMentionSuggestions() {
+  state.mentionSuggestions = [];
+  state.activeMentionRange = null;
+  state.activeMentionIndex = 0;
+}
+
+function handleMentionSuggestionsKeydown(event) {
+  if (state.mentionSuggestions.length === 0 || !state.activeMentionRange) {
+    return false;
+  }
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    state.activeMentionIndex = (state.activeMentionIndex + 1) % state.mentionSuggestions.length;
+    renderMentionSuggestions();
+    return true;
+  }
+
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    state.activeMentionIndex =
+      (state.activeMentionIndex - 1 + state.mentionSuggestions.length) % state.mentionSuggestions.length;
+    renderMentionSuggestions();
+    return true;
+  }
+
+  if (event.key === "Enter" || event.key === "Tab") {
+    event.preventDefault();
+    const suggestion = state.mentionSuggestions[state.activeMentionIndex];
+    if (suggestion) {
+      applyMentionSuggestion(suggestion.username);
+    }
+    return true;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    clearMentionSuggestions();
+    renderMentionSuggestions();
+    return true;
+  }
+
+  return false;
+}
+
+function applyMentionSuggestion(username) {
+  if (!username || !state.activeMentionRange) {
+    return;
+  }
+
+  const prefix = elements.messageInput.value.slice(0, state.activeMentionRange.start);
+  const suffix = elements.messageInput.value.slice(state.activeMentionRange.end);
+  const insertion = `@${username} `;
+  const nextValue = `${prefix}${insertion}${suffix}`;
+  const caretPosition = prefix.length + insertion.length;
+
+  elements.messageInput.value = nextValue;
+  elements.messageInput.focus();
+  elements.messageInput.setSelectionRange(caretPosition, caretPosition);
+  clearMentionSuggestions();
+  renderMentionSuggestions();
 }
 
 async function hydrateAttachmentPreviews() {
@@ -1703,7 +2069,10 @@ function resetComposer() {
   elements.messageAttachmentsInput.value = "";
   state.sendAsVideoNote = false;
   discardRecordedVoice();
+  clearReplyTarget();
+  clearMentionSuggestions();
   renderSelectedAttachments();
+  renderMentionSuggestions();
 }
 
 function renderComposerState() {
@@ -1738,6 +2107,8 @@ function renderComposerState() {
     !state.isRecordingVideoNote || state.videoNoteCameraSwitchInFlight || !canSwitchVideoNoteCamera();
   renderVideoNoteRecordingPreview();
   renderRecordedVoicePreview();
+  renderReplyComposer();
+  renderMentionSuggestions();
 }
 
 function resetAttachmentObjectUrls() {
@@ -1926,6 +2297,12 @@ function buildMessagesSignature(messages) {
         message.authorExternalId,
         message.authorDisplayName,
         message.body,
+        message.replyTo?.id ?? "",
+        message.replyTo?.authorDisplayName ?? "",
+        message.replyTo?.body ?? "",
+        (message.replyTo?.attachments || [])
+          .map((attachment) => [attachment.kind, attachment.fileName].join(":"))
+          .join(","),
         message.createdAt,
         attachmentSignature,
       ].join("|");
@@ -2133,6 +2510,9 @@ async function uploadRecordedVideoNote(conversationId, file) {
   try {
     const formData = new FormData();
     formData.append("sendAsVideoNote", "true");
+    if (state.replyToMessageId) {
+      formData.append("replyToMessageId", String(state.replyToMessageId));
+    }
     formData.append("files", file);
 
     await api(`/api/conversations/${conversationId}/messages/upload`, {
@@ -2141,6 +2521,7 @@ async function uploadRecordedVideoNote(conversationId, file) {
     });
 
     if (conversationId === state.selectedConversationId) {
+      clearReplyTarget();
       await loadMessages(conversationId);
     }
   } catch (error) {

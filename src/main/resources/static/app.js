@@ -1378,13 +1378,17 @@ function renderMessageAttachments(attachments) {
 }
 
 function renderAttachmentCard(attachment) {
-  if (attachment.kind === "PHOTO") {
+  const attachmentKind = detectAttachmentDisplayKind(attachment);
+
+  if (attachmentKind === "PHOTO") {
     return `
       <figure class="attachment-card attachment-card-photo">
         <img
           class="attachment-image hidden"
           data-attachment-preview-id="${attachment.id}"
           data-content-url="${escapeHtml(attachment.contentUrl)}"
+          data-mime-type="${escapeHtml(attachment.mimeType || "")}"
+          data-file-name="${escapeHtml(attachment.fileName || "")}"
           alt="${escapeHtml(attachment.fileName)}"
         >
         <figcaption class="attachment-caption">
@@ -1403,7 +1407,7 @@ function renderAttachmentCard(attachment) {
     `;
   }
 
-  if (attachment.kind === "VIDEO") {
+  if (attachmentKind === "VIDEO") {
     return `
       <figure class="attachment-card attachment-card-video">
         <video
@@ -1412,6 +1416,8 @@ function renderAttachmentCard(attachment) {
           preload="metadata"
           data-attachment-preview-id="${attachment.id}"
           data-content-url="${escapeHtml(attachment.contentUrl)}"
+          data-mime-type="${escapeHtml(attachment.mimeType || "")}"
+          data-file-name="${escapeHtml(attachment.fileName || "")}"
         ></video>
         <figcaption class="attachment-caption">
           <span>${escapeHtml(attachment.fileName)}</span>
@@ -1429,7 +1435,7 @@ function renderAttachmentCard(attachment) {
     `;
   }
 
-  if (attachment.kind === "VIDEO_NOTE") {
+  if (attachmentKind === "VIDEO_NOTE") {
     return `
       <figure class="attachment-card attachment-card-video-note">
         <div
@@ -1446,6 +1452,8 @@ function renderAttachmentCard(attachment) {
             data-attachment-preview-id="${attachment.id}"
             data-content-url="${escapeHtml(attachment.contentUrl)}"
             data-video-note-id="${attachment.id}"
+            data-mime-type="${escapeHtml(attachment.mimeType || "")}"
+            data-file-name="${escapeHtml(attachment.fileName || "")}"
           ></video>
           <button
             class="video-note-toggle"
@@ -1472,7 +1480,7 @@ function renderAttachmentCard(attachment) {
     `;
   }
 
-  if (attachment.kind === "VOICE") {
+  if (attachmentKind === "VOICE") {
     return `
       <div class="attachment-card attachment-card-voice">
         <audio
@@ -1481,6 +1489,8 @@ function renderAttachmentCard(attachment) {
           preload="metadata"
           data-attachment-preview-id="${attachment.id}"
           data-content-url="${escapeHtml(attachment.contentUrl)}"
+          data-mime-type="${escapeHtml(attachment.mimeType || "")}"
+          data-file-name="${escapeHtml(attachment.fileName || "")}"
         ></audio>
         <div class="attachment-caption">
           <span>${escapeHtml(attachment.fileName)}</span>
@@ -1515,6 +1525,28 @@ function renderAttachmentCard(attachment) {
       </button>
     </div>
   `;
+}
+
+function detectAttachmentDisplayKind(attachment) {
+  const declaredKind = String(attachment?.kind || "").toUpperCase();
+  if (["PHOTO", "VIDEO", "VIDEO_NOTE", "VOICE", "DOCUMENT"].includes(declaredKind)) {
+    if (declaredKind !== "DOCUMENT") {
+      return declaredKind;
+    }
+  }
+
+  const mimeType = String(attachment?.mimeType || "").trim().toLowerCase();
+  const fileName = String(attachment?.fileName || "").trim().toLowerCase();
+  if (mimeType.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$/i.test(fileName)) {
+    return "PHOTO";
+  }
+  if (mimeType.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(fileName)) {
+    return declaredKind === "VIDEO_NOTE" ? "VIDEO_NOTE" : "VIDEO";
+  }
+  if (mimeType.startsWith("audio/") || /\.(ogg|oga|opus|mp3|m4a|aac|wav)$/i.test(fileName)) {
+    return "VOICE";
+  }
+  return declaredKind || "DOCUMENT";
 }
 
 function renderReplySnippet(reply) {
@@ -1855,7 +1887,11 @@ async function hydrateAttachmentPreview(mediaElement) {
   try {
     const objectUrl = await ensureProtectedObjectUrl(
       mediaElement.dataset.attachmentPreviewId,
-      mediaElement.dataset.contentUrl
+      mediaElement.dataset.contentUrl,
+      {
+        mimeType: mediaElement.dataset.mimeType,
+        fileName: mediaElement.dataset.fileName,
+      }
     );
     if (mediaElement.src !== objectUrl) {
       mediaElement.src = objectUrl;
@@ -1895,8 +1931,10 @@ async function hydrateProtectedImagePreviews(rootElement = document) {
   );
 }
 
-async function ensureProtectedObjectUrl(resourceKey, contentUrl) {
-  const cacheKey = `${resourceKey}:${contentUrl}`;
+async function ensureProtectedObjectUrl(resourceKey, contentUrl, options = {}) {
+  const expectedMimeType = String(options.mimeType || "").trim().toLowerCase();
+  const expectedFileName = String(options.fileName || "").trim();
+  const cacheKey = `${resourceKey}:${contentUrl}:${expectedMimeType}:${expectedFileName}`;
   if (state.attachmentObjectUrls.has(cacheKey)) {
     return state.attachmentObjectUrls.get(cacheKey);
   }
@@ -1911,10 +1949,103 @@ async function ensureProtectedObjectUrl(resourceKey, contentUrl) {
     throw new Error(`Не удалось загрузить вложение (${response.status})`);
   }
 
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
+  const rawBlob = await response.blob();
+  const repairedBlob = repairPreviewBlobType(rawBlob, expectedMimeType, expectedFileName);
+  const objectUrl = URL.createObjectURL(repairedBlob);
   state.attachmentObjectUrls.set(cacheKey, objectUrl);
   return objectUrl;
+}
+
+function repairPreviewBlobType(blob, expectedMimeType, fileName) {
+  if (!(blob instanceof Blob)) {
+    return blob;
+  }
+
+  const normalizedBlobType = String(blob.type || "").trim().toLowerCase();
+  const normalizedExpectedMimeType = String(expectedMimeType || "").trim().toLowerCase();
+  const inferredMimeType = inferMimeTypeFromFilename(fileName);
+  const resolvedMimeType = [normalizedExpectedMimeType, inferredMimeType]
+    .find((candidate) => candidate && candidate !== "application/octet-stream");
+
+  if (!resolvedMimeType) {
+    return blob;
+  }
+
+  if (normalizedBlobType && normalizedBlobType !== "application/octet-stream") {
+    return blob;
+  }
+
+  return new Blob([blob], { type: resolvedMimeType });
+}
+
+function inferMimeTypeFromFilename(fileName) {
+  const normalizedFileName = String(fileName || "").trim().toLowerCase();
+  if (!normalizedFileName) {
+    return "";
+  }
+
+  if (/\.(jpg|jpeg)$/.test(normalizedFileName)) {
+    return "image/jpeg";
+  }
+  if (/\.png$/.test(normalizedFileName)) {
+    return "image/png";
+  }
+  if (/\.gif$/.test(normalizedFileName)) {
+    return "image/gif";
+  }
+  if (/\.webp$/.test(normalizedFileName)) {
+    return "image/webp";
+  }
+  if (/\.bmp$/.test(normalizedFileName)) {
+    return "image/bmp";
+  }
+  if (/\.heic$/.test(normalizedFileName)) {
+    return "image/heic";
+  }
+  if (/\.heif$/.test(normalizedFileName)) {
+    return "image/heif";
+  }
+  if (/\.mp4$/.test(normalizedFileName)) {
+    return "video/mp4";
+  }
+  if (/\.mov$/.test(normalizedFileName)) {
+    return "video/quicktime";
+  }
+  if (/\.m4v$/.test(normalizedFileName)) {
+    return "video/x-m4v";
+  }
+  if (/\.webm$/.test(normalizedFileName)) {
+    return "video/webm";
+  }
+  if (/\.mkv$/.test(normalizedFileName)) {
+    return "video/x-matroska";
+  }
+  if (/\.avi$/.test(normalizedFileName)) {
+    return "video/x-msvideo";
+  }
+  if (/\.ogg$/.test(normalizedFileName)) {
+    return "audio/ogg";
+  }
+  if (/\.oga$/.test(normalizedFileName)) {
+    return "audio/ogg";
+  }
+  if (/\.opus$/.test(normalizedFileName)) {
+    return "audio/ogg";
+  }
+  if (/\.mp3$/.test(normalizedFileName)) {
+    return "audio/mpeg";
+  }
+  if (/\.m4a$/.test(normalizedFileName)) {
+    return "audio/mp4";
+  }
+  if (/\.aac$/.test(normalizedFileName)) {
+    return "audio/aac";
+  }
+  if (/\.wav$/.test(normalizedFileName)) {
+    return "audio/wav";
+  }
+
+  return "";
 }
 
 async function downloadAttachment(contentUrl, fileName) {
@@ -2061,6 +2192,7 @@ function renderSelectedAttachments() {
   }
 
   elements.attachmentSelectionLabel.textContent = parts.length > 0 ? parts.join(" + ") : "Без вложений";
+  elements.attachmentSelectionLabel.classList.toggle("is-empty-mobile", parts.length === 0);
   renderRecordedVoicePreview();
 }
 

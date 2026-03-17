@@ -1811,8 +1811,8 @@ button:disabled {
     .conversation-header {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
-        padding: 14px 14px 12px;
-        gap: 10px;
+        padding: 10px 12px 8px;
+        gap: 8px;
     }
 
     .messages-panel {
@@ -1827,23 +1827,23 @@ button:disabled {
         display: grid;
         grid-template-columns: auto minmax(0, 1fr);
         align-items: start;
-        gap: 10px;
+        gap: 8px;
     }
 
     .conversation-header-copy {
         flex: 1;
-        gap: 2px;
+        gap: 1px;
     }
 
     .conversation-header h2 {
-        margin-top: 4px;
-        font-size: clamp(1.25rem, 5.8vw, 1.72rem);
+        margin-top: 2px;
+        font-size: clamp(1.12rem, 5vw, 1.46rem);
         max-width: none;
-        line-height: 0.94;
+        line-height: 0.98;
     }
 
     .conversation-topline {
-        gap: 8px;
+        gap: 6px;
         flex-wrap: nowrap;
         min-width: 0;
         overflow: hidden;
@@ -1851,35 +1851,46 @@ button:disabled {
 
     .conversation-topline .role-pill {
         flex: 0 0 auto;
+        padding: 4px 8px;
+        font-size: 0.72rem;
     }
 
     .conversation-online {
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
+        font-size: 0.72rem;
     }
 
     .conversation-meta,
     #conversationMeta {
-        font-size: 0.82rem;
-        line-height: 1.28;
+        font-size: 0.74rem;
+        line-height: 1.18;
     }
 
     .header-actions {
         width: 100%;
         display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
+        flex-wrap: nowrap;
+        gap: 6px;
         justify-content: flex-start;
         align-items: center;
+        overflow-x: auto;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+    }
+
+    .header-actions::-webkit-scrollbar {
+        display: none;
     }
 
     .header-actions .secondary-button,
     .header-actions .ghost-button {
-        min-height: 38px;
+        min-height: 34px;
         width: auto;
         flex: 0 0 auto;
-        padding: 0 10px;
+        padding: 0 9px;
+        font-size: 0.84rem;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -1892,64 +1903,91 @@ button:disabled {
     }
 
     .messages-list {
-        padding: 14px;
-        gap: 12px;
+        padding: 10px;
+        gap: 8px;
     }
 
     .message-row {
-        gap: 8px;
+        gap: 6px;
     }
 
     .message-avatar {
-        width: 34px;
-        height: 34px;
-        font-size: 0.78rem;
+        width: 30px;
+        height: 30px;
+        font-size: 0.72rem;
     }
 
     .message-card {
-        max-width: calc(100% - 6px);
-        padding: 12px 13px;
+        min-width: min(124px, 100%);
+        max-width: calc(100% - 4px);
+        padding: 9px 10px;
+        gap: 5px;
     }
 
     .message-topline {
-        gap: 8px;
+        gap: 6px;
     }
 
     .message-actions {
-        gap: 5px;
+        gap: 4px;
     }
 
     .message-author {
         min-width: 0;
         overflow-wrap: anywhere;
+        font-size: 0.75rem;
     }
 
     .transport-pill {
         flex: 0 0 auto;
+        padding: 3px 7px;
+        font-size: 0.66rem;
     }
 
     .attachment-card {
-        gap: 8px;
+        gap: 7px;
+        padding: 8px;
+    }
+
+    .attachment-card-photo,
+    .attachment-card-video,
+    .attachment-card-video-note,
+    .attachment-card-voice,
+    .attachment-card-document {
+        width: 100%;
+    }
+
+    .attachment-image {
+        max-width: none;
+        max-height: min(48vw, 220px);
+        border-radius: 10px;
+    }
+
+    .attachment-video {
+        max-width: none;
+        max-height: min(52vw, 240px);
     }
 
     .attachment-caption {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
         align-items: end;
-        gap: 10px;
+        gap: 8px;
+        font-size: 0.76rem;
     }
 
     .attachment-link {
-        padding: 8px 10px;
+        padding: 7px 9px;
         white-space: nowrap;
+        font-size: 0.74rem;
     }
 
     .message-form {
         position: sticky;
         bottom: 0;
         z-index: 2;
-        padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
-        gap: 10px;
+        padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+        gap: 8px;
     }
 
     .message-composer-meta {
@@ -1974,14 +2012,14 @@ button:disabled {
     .video-note-record-button,
     .message-composer-tools .ghost-button {
         flex: 0 0 auto;
-        width: 46px;
-        min-width: 46px;
-        height: 46px;
-        min-height: 46px;
+        width: 42px;
+        min-width: 42px;
+        height: 42px;
+        min-height: 42px;
         padding: 0;
         justify-content: center;
         gap: 0;
-        border-radius: 12px;
+        border-radius: 10px;
     }
 
     .attachment-picker .tool-button-label,
@@ -1995,12 +2033,12 @@ button:disabled {
     .voice-record-button .tool-button-icon svg,
     .video-note-record-button .tool-button-icon svg,
     .message-composer-tools .ghost-button .tool-button-icon svg {
-        width: 20px;
-        height: 20px;
+        width: 18px;
+        height: 18px;
     }
 
     .video-note-recording-preview {
-        padding: 12px;
+        padding: 10px;
     }
 
     .video-note-recording-tools {
@@ -2025,11 +2063,36 @@ button:disabled {
     }
 
     .reply-composer-preview {
-        padding: 9px 10px;
+        padding: 8px 9px;
     }
 
     .mention-suggestions {
         max-height: 180px;
+    }
+
+    .message-meta {
+        font-size: 0.7rem;
+    }
+
+    .message-reply-button {
+        min-width: 24px;
+        width: 24px;
+        height: 24px;
+        font-size: 0.76rem;
+    }
+
+    .message-body {
+        font-size: 0.92rem;
+        line-height: 1.34;
+    }
+
+    .message-form textarea {
+        min-height: 56px;
+        padding: 12px 13px;
+    }
+
+    .composer-hint.is-empty-mobile {
+        display: none;
     }
 
     .members-panel {

@@ -411,7 +411,12 @@ public class TelegramPollingService {
             telegramUser.displayName(),
             privateChatId
         );
-        sendPrivateMessage(privateChatId, buildRegistrationMessage(result));
+        sendPrivateInlineMessage(
+            privateChatId,
+            buildRegistrationMessage(result),
+            buildTokenCopyInlineKeyboard(result.plainTextToken())
+        );
+        sendPrivateMessage(privateChatId, "Основные действия доступны кнопками ниже.");
     }
 
     private void handleJoinCommand(String text, TelegramUserDto telegramUser, String privateChatId) {
@@ -863,7 +868,11 @@ public class TelegramPollingService {
     }
 
     private String buildRegistrationMessage(TelegramRegistrationResult result) {
-        String action = result.created() ? "Аккаунт создан." : "Аккаунт найден, token перевыпущен.";
+        String action = result.created()
+            ? "Аккаунт создан."
+            : result.tokenCreatedNew()
+                ? "Аккаунт найден. Выдали новый token."
+                : "Аккаунт найден. Возвращаю твой текущий token.";
         String expiresAt = result.tokenExpiresAt() == null
             ? "не истекает"
             : DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(result.tokenExpiresAt().atOffset(ZoneOffset.UTC));
@@ -880,12 +889,7 @@ public class TelegramPollingService {
 
             Срок действия: %s
 
-            Дальше можно пользоваться кнопками ниже:
-            - Создать чат
-            - Вход
-            - Мои чаты
-            - Создать инвайт
-            - Инструкция
+            Нажми на кнопку с token ниже, чтобы скопировать его.
             """.formatted(
             action,
             result.userId(),
@@ -894,6 +898,18 @@ public class TelegramPollingService {
             result.plainTextToken(),
             expiresAt
         ).stripIndent().trim();
+    }
+
+    private Map<String, Object> buildTokenCopyInlineKeyboard(String token) {
+        return Map.of(
+            "inline_keyboard",
+            List.of(
+                List.of(Map.of(
+                    "text", token,
+                    "copy_text", Map.of("text", token)
+                ))
+            )
+        );
     }
 
     private String buildInstructionMessage() {

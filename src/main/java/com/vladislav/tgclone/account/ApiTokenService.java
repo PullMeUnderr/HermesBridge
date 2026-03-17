@@ -35,10 +35,19 @@ public class ApiTokenService {
     }
 
     @Transactional
-    public IssuedApiToken rotateTelegramToken(UserAccount userAccount) {
-        revokeActiveTokens(userAccount.getId());
-
+    public IssuedApiToken issueOrReuseTelegramToken(UserAccount userAccount) {
         Instant now = clock.instant();
+        Optional<ApiToken> existingToken = apiTokenRepository
+            .findFirstByUserAccount_IdAndLabelAndRevokedFalseOrderByCreatedAtDesc(userAccount.getId(), TELEGRAM_BOT_LABEL)
+            .filter(token -> token.getExpiresAt() == null || token.getExpiresAt().isAfter(now))
+            .filter(token -> token.getPlainTextToken() != null && !token.getPlainTextToken().isBlank());
+
+        if (existingToken.isPresent()) {
+            ApiToken token = existingToken.get();
+            return new IssuedApiToken(token.getPlainTextToken(), token.getExpiresAt(), false);
+        }
+
+        revokeActiveTelegramTokens(userAccount.getId());
         Instant expiresAt = accountProperties.apiTokenTtlDays() <= 0
             ? null
             : now.plus(accountProperties.apiTokenTtlDays(), ChronoUnit.DAYS);
@@ -48,13 +57,14 @@ public class ApiTokenService {
             userAccount,
             tokenHasher.hash(rawToken),
             rawToken.substring(0, Math.min(rawToken.length(), 12)),
+            rawToken,
             TELEGRAM_BOT_LABEL,
             false,
             expiresAt,
             now
         );
         apiTokenRepository.save(token);
-        return new IssuedApiToken(rawToken, expiresAt);
+        return new IssuedApiToken(rawToken, expiresAt, true);
     }
 
     @Transactional
@@ -73,10 +83,12 @@ public class ApiTokenService {
             });
     }
 
-    private void revokeActiveTokens(Long userAccountId) {
+    private void revokeActiveTelegramTokens(Long userAccountId) {
         List<ApiToken> tokens = apiTokenRepository.findAllByUserAccount_IdAndRevokedFalse(userAccountId);
         for (ApiToken token : tokens) {
-            token.revoke();
+            if (TELEGRAM_BOT_LABEL.equals(token.getLabel())) {
+                token.revoke();
+            }
         }
     }
 

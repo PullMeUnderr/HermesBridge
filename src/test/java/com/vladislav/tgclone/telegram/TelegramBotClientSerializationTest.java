@@ -29,4 +29,26 @@ class TelegramBotClientSerializationTest {
         assertTrue(json.contains("\"reply_markup\""));
         assertTrue(json.contains("\"inline_keyboard\""));
     }
+
+    @Test
+    void sendMessageRequestSerializesCopyTextInlineButton() throws Exception {
+        String json = objectMapper.writeValueAsString(new SendMessageRequest(
+            "123",
+            "hello",
+            Map.of(
+                "inline_keyboard",
+                java.util.List.of(
+                    java.util.List.of(
+                        Map.of(
+                            "text", "tgc_token",
+                            "copy_text", Map.of("text", "tgc_token")
+                        )
+                    )
+                )
+            )
+        ));
+
+        assertTrue(json.contains("\"copy_text\""));
+        assertTrue(json.contains("\"tgc_token\""));
+    }
 }

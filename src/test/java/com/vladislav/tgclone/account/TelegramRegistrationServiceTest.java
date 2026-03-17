@@ -48,8 +48,8 @@ class TelegramRegistrationServiceTest {
     void registerOrRefreshCreatesNewUserAndToken() {
         when(telegramIdentityRepository.findByTelegramUserId("42")).thenReturn(Optional.empty());
         when(userAccountRepository.existsByUsername("alice")).thenReturn(false);
-        when(apiTokenService.rotateTelegramToken(any(UserAccount.class))).thenReturn(
-            new IssuedApiToken("plain-token", Instant.parse("2027-03-16T12:00:00Z"))
+        when(apiTokenService.issueOrReuseTelegramToken(any(UserAccount.class))).thenReturn(
+            new IssuedApiToken("plain-token", Instant.parse("2027-03-16T12:00:00Z"), true)
         );
 
         TelegramRegistrationResult result = telegramRegistrationService.registerOrRefresh(
@@ -64,12 +64,13 @@ class TelegramRegistrationServiceTest {
         assertEquals("Alice", result.displayName());
         assertEquals("main", result.tenantKey());
         assertEquals("plain-token", result.plainTextToken());
+        assertTrue(result.tokenCreatedNew());
         verify(userAccountRepository).save(any(UserAccount.class));
         verify(telegramIdentityRepository).save(any(TelegramIdentity.class));
     }
 
     @Test
-    void registerOrRefreshUpdatesExistingIdentityAndRotatesToken() {
+    void registerOrRefreshUpdatesExistingIdentityAndReusesToken() {
         UserAccount existingUser = new UserAccount("main", "telegram_42", "Old Name", true, Instant.EPOCH);
         ReflectionTestUtils.setField(existingUser, "id", 7L);
 
@@ -82,8 +83,8 @@ class TelegramRegistrationServiceTest {
             Instant.EPOCH
         );
         when(telegramIdentityRepository.findByTelegramUserId("42")).thenReturn(Optional.of(existingIdentity));
-        when(apiTokenService.rotateTelegramToken(existingUser)).thenReturn(
-            new IssuedApiToken("rotated-token", Instant.parse("2027-03-16T12:00:00Z"))
+        when(apiTokenService.issueOrReuseTelegramToken(existingUser)).thenReturn(
+            new IssuedApiToken("rotated-token", Instant.parse("2027-03-16T12:00:00Z"), false)
         );
 
         TelegramRegistrationResult result = telegramRegistrationService.registerOrRefresh(
@@ -98,6 +99,7 @@ class TelegramRegistrationServiceTest {
         assertEquals("telegram_42", result.username());
         assertEquals("New Name", result.displayName());
         assertEquals("rotated-token", result.plainTextToken());
+        assertFalse(result.tokenCreatedNew());
         assertNotNull(existingIdentity.getLastSeenAt());
         assertEquals("777", existingIdentity.getPrivateChatId());
         assertEquals("new_username", existingIdentity.getTelegramUsername());

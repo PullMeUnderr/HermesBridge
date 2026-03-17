@@ -75,7 +75,7 @@ public class TelegramRegistrationService {
             identity.touch(normalizeNullable(telegramUsername), privateChatId.trim(), now);
         }
 
-        IssuedApiToken apiToken = apiTokenService.rotateTelegramToken(userAccount);
+        IssuedApiToken apiToken = apiTokenService.issueOrReuseTelegramToken(userAccount);
         return new TelegramRegistrationResult(
             created,
             userAccount.getId(),
@@ -83,7 +83,8 @@ public class TelegramRegistrationService {
             userAccount.getDisplayName(),
             userAccount.getTenantKey(),
             apiToken.plainTextToken(),
-            apiToken.expiresAt()
+            apiToken.expiresAt(),
+            apiToken.createdNew()
         );
     }
 

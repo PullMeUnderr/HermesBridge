@@ -29,6 +29,9 @@ public class ApiToken {
     @Column(name = "token_prefix", nullable = false, length = 20)
     private String tokenPrefix;
 
+    @Column(name = "plain_text_token", length = 255)
+    private String plainTextToken;
+
     @Column(nullable = false, length = 100)
     private String label;
 
@@ -51,6 +54,7 @@ public class ApiToken {
         UserAccount userAccount,
         String tokenHash,
         String tokenPrefix,
+        String plainTextToken,
         String label,
         boolean revoked,
         Instant expiresAt,
@@ -59,6 +63,7 @@ public class ApiToken {
         this.userAccount = userAccount;
         this.tokenHash = tokenHash;
         this.tokenPrefix = tokenPrefix;
+        this.plainTextToken = plainTextToken;
         this.label = label;
         this.revoked = revoked;
         this.expiresAt = expiresAt;
@@ -79,6 +84,10 @@ public class ApiToken {
 
     public String getTokenPrefix() {
         return tokenPrefix;
+    }
+
+    public String getPlainTextToken() {
+        return plainTextToken;
     }
 
     public String getLabel() {

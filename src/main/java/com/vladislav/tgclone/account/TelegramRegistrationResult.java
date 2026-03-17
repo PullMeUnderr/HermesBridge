@@ -9,6 +9,7 @@ public record TelegramRegistrationResult(
     String displayName,
     String tenantKey,
     String plainTextToken,
-    Instant tokenExpiresAt
+    Instant tokenExpiresAt,
+    boolean tokenCreatedNew
 ) {
 }

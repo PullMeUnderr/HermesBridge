@@ -4,6 +4,7 @@ import java.time.Instant;
 
 public record IssuedApiToken(
     String plainTextToken,
-    Instant expiresAt
+    Instant expiresAt,
+    boolean createdNew
 ) {
 }

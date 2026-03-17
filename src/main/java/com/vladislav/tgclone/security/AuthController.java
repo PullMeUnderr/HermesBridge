@@ -4,7 +4,7 @@ import com.vladislav.tgclone.account.UserAccount;
 import com.vladislav.tgclone.account.TelegramIdentity;
 import com.vladislav.tgclone.account.UserAccountService;
 import java.io.IOException;
-import java.nio.file.Files;
+import com.vladislav.tgclone.media.MediaStorageService;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
@@ -24,9 +24,11 @@ import org.springframework.web.multipart.MultipartFile;
 public class AuthController {
 
     private final UserAccountService userAccountService;
+    private final MediaStorageService mediaStorageService;
 
-    public AuthController(UserAccountService userAccountService) {
+    public AuthController(UserAccountService userAccountService, MediaStorageService mediaStorageService) {
         this.userAccountService = userAccountService;
+        this.mediaStorageService = mediaStorageService;
     }
 
     @GetMapping("/me")
@@ -68,14 +70,13 @@ public class AuthController {
         return ResponseEntity.ok()
             .cacheControl(CacheControl.noStore().mustRevalidate())
             .contentType(resolveMediaType(userAccount.getAvatarMimeType()))
-            .contentLength(Files.size(resolvedUserAvatar.path()))
             .header(
                 HttpHeaders.CONTENT_DISPOSITION,
                 ContentDisposition.inline().filename(userAccount.getAvatarOriginalFilename()).build().toString()
             )
             .header(HttpHeaders.PRAGMA, "no-cache")
             .header(HttpHeaders.EXPIRES, "0")
-            .body(new InputStreamResource(Files.newInputStream(resolvedUserAvatar.path())));
+            .body(new InputStreamResource(mediaStorageService.openStream(userAccount.getAvatarStorageKey())));
     }
 
     private AuthenticatedUserResponse toResponse(UserAccount userAccount, TelegramIdentity telegramIdentity) {

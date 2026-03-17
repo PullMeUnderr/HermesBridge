@@ -47,6 +47,12 @@ app:
   media:
     storage-root: ${APP_MEDIA_STORAGE_ROOT:./data/media}
     max-file-size-bytes: ${APP_MEDIA_MAX_FILE_SIZE_BYTES:20971520}
+    storage-provider: ${APP_MEDIA_STORAGE_PROVIDER:local}
+    s3-endpoint: ${APP_MEDIA_S3_ENDPOINT:${APP_MEDIA_R2_ENDPOINT:}}
+    s3-bucket: ${APP_MEDIA_S3_BUCKET:${APP_MEDIA_R2_BUCKET:}}
+    s3-access-key-id: ${APP_MEDIA_S3_ACCESS_KEY_ID:${APP_MEDIA_R2_ACCESS_KEY_ID:}}
+    s3-secret-access-key: ${APP_MEDIA_S3_SECRET_ACCESS_KEY:${APP_MEDIA_R2_SECRET_ACCESS_KEY:}}
+    s3-region: ${APP_MEDIA_S3_REGION:${APP_MEDIA_R2_REGION:}}
 
 management:
   endpoints:

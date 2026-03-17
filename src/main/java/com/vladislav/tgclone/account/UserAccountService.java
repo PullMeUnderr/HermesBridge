@@ -4,8 +4,6 @@ import com.vladislav.tgclone.common.NotFoundException;
 import com.vladislav.tgclone.media.MediaStorageService;
 import com.vladislav.tgclone.media.StoredMediaFile;
 import com.vladislav.tgclone.security.AuthenticatedUser;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Locale;
@@ -102,12 +100,11 @@ public class UserAccountService {
             throw new NotFoundException("Avatar not found");
         }
 
-        Path path = mediaStorageService.resolve(userAccount.getAvatarStorageKey());
-        if (!Files.exists(path)) {
+        if (!mediaStorageService.exists(userAccount.getAvatarStorageKey())) {
             throw new NotFoundException("Avatar content not found");
         }
 
-        return new ResolvedUserAvatar(userAccount, path);
+        return new ResolvedUserAvatar(userAccount);
     }
 
     public String buildOwnAvatarUrl(UserAccount userAccount) {
@@ -185,8 +182,7 @@ public class UserAccountService {
     }
 
     public record ResolvedUserAvatar(
-        UserAccount userAccount,
-        Path path
+        UserAccount userAccount
     ) {
     }
 }

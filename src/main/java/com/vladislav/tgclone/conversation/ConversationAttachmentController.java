@@ -2,7 +2,7 @@ package com.vladislav.tgclone.conversation;
 
 import com.vladislav.tgclone.security.AuthenticatedUser;
 import java.io.IOException;
-import java.nio.file.Files;
+import com.vladislav.tgclone.media.MediaStorageService;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
@@ -20,9 +20,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class ConversationAttachmentController {
 
     private final ConversationAttachmentService conversationAttachmentService;
+    private final MediaStorageService mediaStorageService;
 
-    public ConversationAttachmentController(ConversationAttachmentService conversationAttachmentService) {
+    public ConversationAttachmentController(
+        ConversationAttachmentService conversationAttachmentService,
+        MediaStorageService mediaStorageService
+    ) {
         this.conversationAttachmentService = conversationAttachmentService;
+        this.mediaStorageService = mediaStorageService;
     }
 
     @GetMapping("/{attachmentId}/content")
@@ -46,7 +51,7 @@ public class ConversationAttachmentController {
             )
             .header(HttpHeaders.PRAGMA, "no-cache")
             .header(HttpHeaders.EXPIRES, "0")
-            .body(new InputStreamResource(Files.newInputStream(resolvedAttachment.path())));
+            .body(new InputStreamResource(mediaStorageService.openStream(attachment.getStorageKey())));
     }
 
     private MediaType resolveMediaType(String rawMimeType) {

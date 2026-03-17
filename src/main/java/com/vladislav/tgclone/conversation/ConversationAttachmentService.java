@@ -4,8 +4,6 @@ import com.vladislav.tgclone.common.NotFoundException;
 import com.vladislav.tgclone.media.MediaStorageService;
 import com.vladislav.tgclone.media.StoredMediaFile;
 import com.vladislav.tgclone.security.AuthenticatedUser;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
@@ -83,14 +81,12 @@ public class ConversationAttachmentService {
             throw new NotFoundException("Attachment %s not found".formatted(attachmentId));
         }
 
-        Path path = mediaStorageService.resolve(attachment.getStorageKey());
-        if (!Files.exists(path)) {
+        if (!mediaStorageService.exists(attachment.getStorageKey())) {
             throw new NotFoundException("Attachment content %s not found".formatted(attachmentId));
         }
 
         return new ResolvedConversationAttachment(
-            attachment,
-            path
+            attachment
         );
     }
 
@@ -99,8 +95,7 @@ public class ConversationAttachmentService {
     }
 
     public record ResolvedConversationAttachment(
-        ConversationAttachment attachment,
-        Path path
+        ConversationAttachment attachment
     ) {
     }
 }

@@ -48,15 +48,34 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
         }
 
         if (attachments.size() > 1 && canSendAsMediaGroup(attachments)) {
+            List<MediaStorageService.MaterializedMediaFile> mediaFiles = new java.util.ArrayList<>();
             try {
+                List<TelegramBotClient.TelegramMediaGroupItem> items = new java.util.ArrayList<>();
+                for (ConversationAttachment attachment : attachments) {
+                    MediaStorageService.MaterializedMediaFile mediaFile = mediaStorageService.materialize(
+                        attachment.getStorageKey(),
+                        attachment.getOriginalFilename()
+                    );
+                    mediaFiles.add(mediaFile);
+                    String type = attachment.getKind() == ConversationAttachmentKind.PHOTO ? "photo" : "video";
+                    items.add(new TelegramBotClient.TelegramMediaGroupItem(type, mediaFile.path()));
+                }
                 return telegramBotClient.sendMediaGroup(
                     binding.getExternalChatId(),
-                    attachments.stream().map(this::toMediaGroupItem).toList(),
+                    items,
                     buildCaption(message),
                     replyToMessageId
                 );
             } catch (Exception ignored) {
                 // Fall back to individual sends.
+            } finally {
+                for (MediaStorageService.MaterializedMediaFile mediaFile : mediaFiles) {
+                    try {
+                        mediaFile.close();
+                    } catch (Exception ignored) {
+                        // ignored
+                    }
+                }
             }
         }
 
@@ -102,14 +121,17 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
         String caption,
         String replyToMessageId
     ) {
-        java.nio.file.Path path = mediaStorageService.resolve(attachment.getStorageKey());
-        return switch (attachment.getKind()) {
-            case PHOTO -> deliverPhoto(binding, attachment, path, caption, replyToMessageId);
-            case VIDEO -> deliverVideo(binding, attachment, path, caption, replyToMessageId);
-            case VIDEO_NOTE -> deliverVideoNote(binding, attachment, path, caption, replyToMessageId);
-            case VOICE -> deliverVoice(binding, attachment, path, caption, replyToMessageId);
-            case DOCUMENT -> telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption, replyToMessageId);
-        };
+        try (MediaStorageService.MaterializedMediaFile mediaFile =
+                 mediaStorageService.materialize(attachment.getStorageKey(), attachment.getOriginalFilename())) {
+            java.nio.file.Path path = mediaFile.path();
+            return switch (attachment.getKind()) {
+                case PHOTO -> deliverPhoto(binding, attachment, path, caption, replyToMessageId);
+                case VIDEO -> deliverVideo(binding, attachment, path, caption, replyToMessageId);
+                case VIDEO_NOTE -> deliverVideoNote(binding, attachment, path, caption, replyToMessageId);
+                case VOICE -> deliverVoice(binding, attachment, path, caption, replyToMessageId);
+                case DOCUMENT -> telegramBotClient.sendDocument(binding.getExternalChatId(), path, caption, replyToMessageId);
+            };
+        }
     }
 
     private String deliverPhoto(
@@ -250,9 +272,7 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
     }
 
     private TelegramBotClient.TelegramMediaGroupItem toMediaGroupItem(ConversationAttachment attachment) {
-        java.nio.file.Path path = mediaStorageService.resolve(attachment.getStorageKey());
-        String type = attachment.getKind() == ConversationAttachmentKind.PHOTO ? "photo" : "video";
-        return new TelegramBotClient.TelegramMediaGroupItem(type, path);
+        throw new UnsupportedOperationException("Materialized media group items must be built in caller");
     }
 
     private boolean shouldSendAsVoice(ConversationAttachment attachment) {

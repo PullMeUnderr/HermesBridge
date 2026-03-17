@@ -28,7 +28,7 @@ public class DevelopmentMediaStorageCleaner implements ApplicationRunner {
 
     @Override
     public void run(org.springframework.boot.ApplicationArguments args) throws Exception {
-        if (!isEphemeralH2(datasourceUrl)) {
+        if (!isEphemeralH2(datasourceUrl) || mediaProperties.useObjectStorage()) {
             return;
         }
 

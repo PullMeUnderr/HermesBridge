@@ -44,6 +44,19 @@ export APP_DATASOURCE_USERNAME=postgres
 export APP_DATASOURCE_PASSWORD=postgres
 ```
 
+Для локального хранения медиа этого достаточно. Если захочешь вынести медиа в Backblaze B2, задай:
+
+```bash
+export APP_MEDIA_STORAGE_PROVIDER=backblaze-b2
+export APP_MEDIA_S3_ENDPOINT=https://s3.eu-central-003.backblazeb2.com
+export APP_MEDIA_S3_BUCKET=hermesbridge-media
+export APP_MEDIA_S3_ACCESS_KEY_ID=...
+export APP_MEDIA_S3_SECRET_ACCESS_KEY=...
+export APP_MEDIA_S3_REGION=eu-central-003
+```
+
+`APP_MEDIA_S3_REGION` можно не задавать, если endpoint уже указывает регион в формате `s3.<region>.backblazeb2.com`.
+
 ### 2. Запуск
 
 ```bash

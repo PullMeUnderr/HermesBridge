@@ -25,7 +25,15 @@ if [[ -z "$JAR_PATH" ]]; then
   exit 1
 fi
 
-scp "${SSH_OPTS[@]}" "$JAR_PATH" "$REMOTE:/opt/hermesbridge/current/hermesbridge.jar"
-scp "${SSH_OPTS[@]}" deployment/hermesbridge.service "$REMOTE:/etc/systemd/system/hermesbridge.service"
+ssh "${SSH_OPTS[@]}" "$REMOTE" 'systemctl stop hermesbridge 2>/dev/null || true'
+scp "${SSH_OPTS[@]}" "$JAR_PATH" "$REMOTE:/opt/hermesbridge/current/hermesbridge.jar.new"
+scp "${SSH_OPTS[@]}" deployment/hermesbridge.service "$REMOTE:/root/hermesbridge.service.new"
 
-ssh "${SSH_OPTS[@]}" "$REMOTE" 'systemctl daemon-reload && systemctl restart hermesbridge && systemctl status hermesbridge --no-pager -n 30'
+ssh "${SSH_OPTS[@]}" "$REMOTE" '
+  mv /opt/hermesbridge/current/hermesbridge.jar.new /opt/hermesbridge/current/hermesbridge.jar &&
+  chown hermes:hermes /opt/hermesbridge/current/hermesbridge.jar &&
+  mv /root/hermesbridge.service.new /etc/systemd/system/hermesbridge.service &&
+  systemctl daemon-reload &&
+  systemctl restart hermesbridge &&
+  systemctl status hermesbridge --no-pager -n 30
+'

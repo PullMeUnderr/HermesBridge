@@ -3,11 +3,14 @@ const state = {
   me: null,
   conversations: [],
   conversationsSignature: "",
+  loadingConversations: false,
   selectedConversationId: null,
   currentMessages: [],
   currentMessagesSignature: "",
+  loadingMessages: false,
   currentMembers: [],
   currentMembersSignature: "",
+  loadingMembers: false,
   pollHandle: null,
   lastSyncAt: null,
   sidebarDrawerMode: null,
@@ -57,6 +60,9 @@ const state = {
   activeMentionIndex: 0,
   highlightedMessageId: null,
   highlightedMessageTimeout: null,
+  banners: [],
+  nextBannerId: 1,
+  previousConversationMap: new Map(),
 };
 
 const elements = {
@@ -74,6 +80,7 @@ const elements = {
   conversationAvatarInput: document.getElementById("conversationAvatarInput"),
   conversationAvatarPreview: document.getElementById("conversationAvatarPreview"),
   clearConversationAvatarButton: document.getElementById("clearConversationAvatarButton"),
+  toggleConversationMuteButton: document.getElementById("toggleConversationMuteButton"),
   saveConversationSettingsButton: document.getElementById("saveConversationSettingsButton"),
   deleteConversationButton: document.getElementById("deleteConversationButton"),
   sidebarDrawer: document.getElementById("sidebarDrawer"),
@@ -143,6 +150,11 @@ const elements = {
   cancelReplyButton: document.getElementById("cancelReplyButton"),
   mentionSuggestions: document.getElementById("mentionSuggestions"),
   sendMessageButton: document.getElementById("sendMessageButton"),
+  mobileTabbar: document.getElementById("mobileTabbar"),
+  mobileChatsTabButton: document.getElementById("mobileChatsTabButton"),
+  mobileCurrentChatTabButton: document.getElementById("mobileCurrentChatTabButton"),
+  mobileProfileTabButton: document.getElementById("mobileProfileTabButton"),
+  notificationCenter: document.getElementById("notificationCenter"),
   toast: document.getElementById("toast"),
 };
 
@@ -166,11 +178,14 @@ elements.logoutButton.addEventListener("click", () => {
   state.me = null;
   state.conversations = [];
   state.conversationsSignature = "";
+  state.loadingConversations = false;
   state.selectedConversationId = null;
   state.currentMessages = [];
   state.currentMessagesSignature = "";
+  state.loadingMessages = false;
   state.currentMembers = [];
   state.currentMembersSignature = "";
+  state.loadingMembers = false;
   state.lastSyncAt = null;
   state.sidebarDrawerMode = null;
   state.messageSubmitInFlight = false;
@@ -195,6 +210,8 @@ elements.logoutButton.addEventListener("click", () => {
   cancelVideoNoteRecording(true);
   discardRecordedVoice();
   resetAttachmentObjectUrls();
+  state.banners = [];
+  state.previousConversationMap = new Map();
   stopPolling();
   render();
 });
@@ -237,6 +254,51 @@ elements.closeMembersPanelButton.addEventListener("click", () => {
   state.mobileMembersOpen = false;
   syncMobileLayout();
   renderConversationHeader();
+});
+
+elements.toggleConversationMuteButton.addEventListener("click", async () => {
+  const conversation = getDrawerConversation();
+  if (!conversation || state.conversationSettingsSaveInFlight) {
+    return;
+  }
+
+  await guardedAction(async () => {
+    const updatedConversation = await api(`/api/conversations/${conversation.id}/preferences`, {
+      method: "PATCH",
+      body: JSON.stringify({ muted: !conversation.muted }),
+    });
+    mergeConversation(updatedConversation);
+    renderConversationList();
+    renderConversationSettingsForm();
+    renderConversationHeader();
+    showToast(updatedConversation.muted ? "Чат заглушен." : "Уведомления включены.", "success");
+  });
+});
+
+elements.mobileChatsTabButton.addEventListener("click", () => {
+  state.mobileMembersOpen = false;
+  state.mobileScreen = "sidebar";
+  syncMobileLayout();
+});
+
+elements.mobileCurrentChatTabButton.addEventListener("click", () => {
+  if (!state.selectedConversationId) {
+    return;
+  }
+  state.mobileMembersOpen = false;
+  state.mobileScreen = "conversation";
+  syncMobileLayout();
+});
+
+elements.mobileProfileTabButton.addEventListener("click", () => {
+  if (!state.me) {
+    return;
+  }
+  if (isMobileViewport()) {
+    state.mobileScreen = "sidebar";
+    syncMobileLayout();
+  }
+  toggleDrawer("profile");
 });
 
 elements.closeDrawerButton.addEventListener("click", () => {
@@ -693,6 +755,7 @@ document.addEventListener("click", (event) => {
 async function bootstrapSession() {
   try {
     state.me = await api("/api/auth/me");
+    state.previousConversationMap = new Map();
     await loadConversations();
     render();
     startPolling();
@@ -723,7 +786,10 @@ async function bootstrapSession() {
 }
 
 async function loadConversations() {
-  const conversations = await api("/api/conversations");
+  state.loadingConversations = true;
+  renderConversationList();
+  try {
+    const conversations = await api("/api/conversations");
   const conversationsSignature = buildConversationsSignature(conversations);
   const selectedConversationMissing =
     state.selectedConversationId &&
@@ -745,6 +811,9 @@ async function loadConversations() {
   }
 
   const conversationsChanged = conversationsSignature !== state.conversationsSignature;
+  notifyAboutConversationUpdates(conversations);
+  state.previousConversationMap = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+  state.loadingConversations = false;
   if (!conversationsChanged && !selectedConversationMissing) {
     return;
   }
@@ -755,17 +824,25 @@ async function loadConversations() {
   renderWorkspaceHeader();
   renderConversationHeader();
   syncMobileLayout();
+  } finally {
+    state.loadingConversations = false;
+  }
 }
 
 async function loadMessages(conversationId) {
-  const [messages, members] = await Promise.all([
-    api(`/api/conversations/${conversationId}/messages`),
-    api(`/api/conversations/${conversationId}/members`),
-  ]);
+  state.loadingMessages = true;
+  state.loadingMembers = true;
+  renderMessages();
+  renderMembers(state.currentMembers);
+  try {
+    const [messages, members] = await Promise.all([
+      api(`/api/conversations/${conversationId}/messages`),
+      api(`/api/conversations/${conversationId}/members`),
+    ]);
 
-  if (conversationId !== state.selectedConversationId) {
-    return;
-  }
+    if (conversationId !== state.selectedConversationId) {
+      return;
+    }
 
   const messagesSignature = buildMessagesSignature(messages);
   const membersSignature = buildMembersSignature(members);
@@ -792,9 +869,16 @@ async function loadMessages(conversationId) {
     renderMembers(members);
   }
 
-  touchSync();
-  renderConversationHeader();
-  renderWorkspaceHeader();
+    markConversationRead(conversationId).catch(() => {});
+
+    touchSync();
+    renderConversationHeader();
+    renderWorkspaceHeader();
+    renderConversationList();
+  } finally {
+    state.loadingMessages = false;
+    state.loadingMembers = false;
+  }
 }
 
 async function refreshCurrentConversation() {
@@ -805,6 +889,28 @@ async function refreshCurrentConversation() {
   await loadMessages(state.selectedConversationId);
 }
 
+async function markConversationRead(conversationId) {
+  if (!conversationId) {
+    return;
+  }
+
+  await api(`/api/conversations/${conversationId}/read`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+
+  const conversation = state.conversations.find((item) => item.id === conversationId);
+  if (!conversation || conversation.unreadCount === 0) {
+    return;
+  }
+
+  mergeConversation({
+    ...conversation,
+    unreadCount: 0,
+  });
+  renderConversationList();
+}
+
 function selectConversation(conversationId) {
   cancelVideoNoteRecording(true);
   discardRecordedVoice();
@@ -813,6 +919,8 @@ function selectConversation(conversationId) {
   state.currentMessagesSignature = "";
   state.currentMembers = [];
   state.currentMembersSignature = "";
+  state.loadingMessages = true;
+  state.loadingMembers = true;
   state.mobileMembersOpen = false;
   state.desktopMembersOpen = false;
   clearReplyTarget();
@@ -846,11 +954,12 @@ function render() {
     renderReplyComposer();
     renderMentionSuggestions();
     syncMobileLayout();
+    renderNotificationCenter();
     return;
   }
 
   elements.userCard.innerHTML = `
-    <div class="user-shell">
+      <div class="user-shell">
       ${renderAvatarMarkup(state.me.displayName || state.me.username, state.me.avatarUrl, "user-avatar")}
       <div class="user-meta">
         <strong class="user-name">${escapeHtml(state.me.displayName)}</strong>
@@ -858,7 +967,11 @@ function render() {
           <span class="muted">@${escapeHtml(state.me.username)}</span>
           ${state.me.telegramUsername ? `<span class="user-telegram-hint">(@${escapeHtml(state.me.telegramUsername)})</span>` : ""}
         </div>
-        <span class="muted">Tenant: ${escapeHtml(state.me.tenantKey)}</span>
+        <span class="muted user-status-copy">${renderPresenceLabel({
+          online: state.me.online,
+          lastSeenAt: state.me.lastSeenAt,
+          telegramLinked: state.me.telegramLinked,
+        })}</span>
       </div>
     </div>
     <div class="user-card-footer">
@@ -877,11 +990,28 @@ function render() {
   renderReplyComposer();
   renderMentionSuggestions();
   syncMobileLayout();
+  renderNotificationCenter();
 }
 
 function renderConversationList() {
   if (!state.me) {
     elements.conversationList.innerHTML = "";
+    return;
+  }
+
+  if (state.loadingConversations && state.conversations.length === 0) {
+    elements.conversationList.innerHTML = Array.from({ length: 5 }, () => `
+      <article class="conversation-item-shell skeleton-item">
+        <div class="conversation-item skeleton-card">
+          <div class="conversation-avatar skeleton-block"></div>
+          <span class="conversation-copy">
+            <span class="skeleton-line skeleton-line-short"></span>
+            <span class="skeleton-line"></span>
+            <span class="skeleton-line skeleton-line-tiny"></span>
+          </span>
+        </div>
+      </article>
+    `).join("");
     return;
   }
 
@@ -898,16 +1028,32 @@ function renderConversationList() {
   elements.conversationList.innerHTML = state.conversations
     .map((conversation) => {
       const active = conversation.id === state.selectedConversationId ? "active" : "";
+      const preview = conversation.lastMessagePreview || "Пока без сообщений";
+      const timestamp = conversation.lastMessageCreatedAt
+        ? formatClock(conversation.lastMessageCreatedAt)
+        : (conversation.createdAt ? formatClock(conversation.createdAt) : "");
+      const unreadBadge = conversation.unreadCount > 0
+        ? `<span class="conversation-unread-badge">${conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}</span>`
+        : "";
+      const mutedBadge = conversation.muted
+        ? `<span class="conversation-muted-badge" aria-label="Чат заглушен">🔕</span>`
+        : "";
       return `
         <article class="conversation-item-shell ${active}">
           <button class="conversation-item ${active}" data-conversation-id="${conversation.id}" type="button">
             ${renderAvatarMarkup(conversation.title, conversation.avatarUrl, "conversation-avatar")}
             <span class="conversation-copy">
-              <span class="conversation-kicker">Chat #${conversation.id}</span>
-              <span class="title">${escapeHtml(conversation.title)}</span>
+              <span class="conversation-row">
+                <span class="title">${escapeHtml(conversation.title)}</span>
+                <span class="conversation-meta-cluster">
+                  ${mutedBadge}
+                  <span class="meta">${escapeHtml(timestamp)}</span>
+                </span>
+              </span>
+              <span class="conversation-preview">${escapeHtml(preview)}</span>
               <span class="conversation-footer">
                 <span class="mini-pill">${escapeHtml(conversation.membershipRole)}</span>
-                <span class="meta">${conversation.createdAt ? escapeHtml(formatTimestamp(conversation.createdAt)) : "Готов к синку"}</span>
+                ${unreadBadge}
               </span>
             </span>
           </button>
@@ -1120,6 +1266,7 @@ function renderConversationSettingsForm() {
 
   elements.conversationTitleInput.disabled = state.conversationSettingsSaveInFlight || state.conversationDeleteInFlight;
   elements.conversationAvatarInput.disabled = state.conversationSettingsSaveInFlight || state.conversationDeleteInFlight;
+  elements.toggleConversationMuteButton.disabled = state.conversationSettingsSaveInFlight || state.conversationDeleteInFlight;
   elements.saveConversationSettingsButton.disabled = state.conversationSettingsSaveInFlight || state.conversationDeleteInFlight;
   elements.deleteConversationButton.disabled = state.conversationSettingsSaveInFlight || state.conversationDeleteInFlight;
   elements.clearConversationAvatarButton.disabled = state.conversationSettingsSaveInFlight
@@ -1134,6 +1281,10 @@ function renderConversationSettingsForm() {
   elements.clearConversationAvatarButton.textContent = state.conversationAvatarRemoveRequested
     ? "Аватар уберется"
     : "Убрать аватар";
+  elements.toggleConversationMuteButton.textContent = conversation.muted
+    ? "Чат заглушен"
+    : "Уведомления включены";
+  elements.toggleConversationMuteButton.classList.toggle("active", conversation.muted);
 
   elements.conversationAvatarPreview.innerHTML = `
     ${renderAvatarMarkup(conversation.title, previewUrl, "conversation-avatar", { protectedSource: usesProtectedUrl })}
@@ -1317,6 +1468,7 @@ function syncMobileLayout() {
     elements.appView.dataset.mobileMembersOpen = "false";
     elements.appView.dataset.desktopMembersOpen = "false";
     elements.desktopOverlay.classList.add("hidden");
+    elements.mobileTabbar?.classList.add("hidden");
     return;
   }
 
@@ -1333,6 +1485,25 @@ function syncMobileLayout() {
   elements.appView.dataset.mobileScreen = state.mobileScreen;
   elements.appView.dataset.mobileMembersOpen = String(Boolean(state.mobileMembersOpen && isMobileViewport()));
   syncDesktopDrawers();
+  renderMobileTabbar();
+}
+
+function renderMobileTabbar() {
+  if (!elements.mobileTabbar) {
+    return;
+  }
+
+  const mobileViewport = isMobileViewport();
+  elements.mobileTabbar.classList.toggle("hidden", !mobileViewport || !state.me);
+  if (!mobileViewport || !state.me) {
+    return;
+  }
+
+  elements.mobileChatsTabButton.classList.toggle("active", state.mobileScreen === "sidebar");
+  elements.mobileCurrentChatTabButton.classList.toggle("active", state.mobileScreen === "conversation");
+  elements.mobileCurrentChatTabButton.disabled = !state.selectedConversationId;
+  elements.mobileCurrentChatTabButton.textContent = state.selectedConversationId ? "Диалог" : "Диалог";
+  elements.mobileProfileTabButton.classList.toggle("active", state.sidebarDrawerMode === "profile");
 }
 
 function syncDesktopDrawers() {
@@ -1355,6 +1526,20 @@ function syncDesktopDrawers() {
 }
 
 function renderMessages() {
+  if (state.loadingMessages && state.currentMessages.length === 0) {
+    elements.messagesList.innerHTML = Array.from({ length: 4 }, (_, index) => `
+      <div class="message-row ${index % 2 === 0 ? "mine" : ""}">
+        <div class="message-avatar skeleton-block"></div>
+        <article class="message-card skeleton-card">
+          <div class="skeleton-line skeleton-line-short"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line skeleton-line-tiny"></div>
+        </article>
+      </div>
+    `).join("");
+    return;
+  }
+
   if (state.currentMessages.length === 0) {
     elements.messagesList.innerHTML = `
       <div class="empty-inline">
@@ -1412,6 +1597,21 @@ function renderMessages() {
 }
 
 function renderMembers(members) {
+  if (state.loadingMembers && (!members || members.length === 0)) {
+    elements.membersList.innerHTML = Array.from({ length: 4 }, () => `
+      <article class="member-card skeleton-card">
+        <div class="member-shell">
+          <div class="member-avatar skeleton-block"></div>
+          <div class="member-copy">
+            <div class="skeleton-line skeleton-line-short"></div>
+            <div class="skeleton-line"></div>
+          </div>
+        </div>
+      </article>
+    `).join("");
+    return;
+  }
+
   if (!members || members.length === 0) {
     elements.membersList.innerHTML = `
       <div class="empty-inline">
@@ -1431,6 +1631,7 @@ function renderMembers(members) {
       const telegramHint = mine && state.me?.telegramUsername
         ? `<span class="user-telegram-hint">(@${escapeHtml(state.me.telegramUsername)})</span>`
         : "";
+      const presenceLabel = renderPresenceLabel(member);
 
       return `
         <article class="member-card">
@@ -1441,6 +1642,7 @@ function renderMembers(members) {
               <div class="member-handle-line">
                 <span class="muted">@${escapeHtml(username)}</span>${telegramHint}
               </div>
+              <div class="member-presence ${member.online ? "online" : ""}">${presenceLabel}</div>
               <span class="member-role">${escapeHtml(member.role)}</span>
             </div>
           </div>
@@ -1449,6 +1651,128 @@ function renderMembers(members) {
     })
     .join("");
   hydrateProtectedImagePreviews(elements.membersList).catch(() => {});
+}
+
+function renderPresenceLabel(subject) {
+  if (!subject) {
+    return "Статус неизвестен";
+  }
+
+  if (subject.online) {
+    return subject.telegramLinked ? "Online · Telegram подключен" : "Online";
+  }
+
+  if (subject.lastSeenAt) {
+    return `${subject.telegramLinked ? "Telegram · " : ""}был(а) ${formatLastSeen(subject.lastSeenAt)}`;
+  }
+
+  return subject.telegramLinked ? "Telegram подключен" : "Hermes only";
+}
+
+function formatLastSeen(value) {
+  try {
+    const date = new Date(value);
+    const deltaMs = Date.now() - date.getTime();
+    const deltaMinutes = Math.max(1, Math.round(deltaMs / 60000));
+    if (deltaMinutes < 60) {
+      return `${deltaMinutes} мин назад`;
+    }
+    const deltaHours = Math.round(deltaMinutes / 60);
+    if (deltaHours < 24) {
+      return `${deltaHours} ч назад`;
+    }
+    return new Intl.DateTimeFormat("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  } catch (error) {
+    return "недавно";
+  }
+}
+
+function notifyAboutConversationUpdates(conversations) {
+  if (!Array.isArray(conversations) || conversations.length === 0) {
+    return;
+  }
+
+  for (const conversation of conversations) {
+    const previous = state.previousConversationMap.get(conversation.id);
+    if (!previous) {
+      continue;
+    }
+
+    if (conversation.muted || conversation.id === state.selectedConversationId) {
+      continue;
+    }
+
+    const previousUnread = Number(previous.unreadCount || 0);
+    const currentUnread = Number(conversation.unreadCount || 0);
+    if (currentUnread <= previousUnread) {
+      continue;
+    }
+
+    pushBanner({
+      title: conversation.title,
+      body: conversation.lastMessagePreview || "Новое сообщение",
+      conversationId: conversation.id,
+    });
+  }
+}
+
+function pushBanner(payload) {
+  const banner = {
+    id: state.nextBannerId++,
+    title: payload.title,
+    body: payload.body,
+    conversationId: payload.conversationId,
+  };
+  state.banners = [banner, ...state.banners].slice(0, 4);
+  renderNotificationCenter();
+  window.setTimeout(() => dismissBanner(banner.id), 5200);
+}
+
+function dismissBanner(bannerId) {
+  const nextBanners = state.banners.filter((banner) => banner.id !== bannerId);
+  if (nextBanners.length === state.banners.length) {
+    return;
+  }
+  state.banners = nextBanners;
+  renderNotificationCenter();
+}
+
+function renderNotificationCenter() {
+  if (!elements.notificationCenter) {
+    return;
+  }
+
+  if (!state.banners.length) {
+    elements.notificationCenter.innerHTML = "";
+    return;
+  }
+
+  elements.notificationCenter.innerHTML = state.banners.map((banner) => `
+    <article class="notification-banner" data-banner-id="${banner.id}">
+      <button class="notification-banner-main" type="button" data-banner-conversation-id="${banner.conversationId}">
+        <strong>${escapeHtml(banner.title)}</strong>
+        <span>${escapeHtml(banner.body)}</span>
+      </button>
+      <button class="notification-banner-close" type="button" data-close-banner-id="${banner.id}" aria-label="Закрыть">×</button>
+    </article>
+  `).join("");
+
+  elements.notificationCenter.querySelectorAll("[data-banner-conversation-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const conversationId = Number(button.dataset.bannerConversationId);
+      if (Number.isFinite(conversationId)) {
+        selectConversation(conversationId);
+      }
+    });
+  });
+  elements.notificationCenter.querySelectorAll("[data-close-banner-id]").forEach((button) => {
+    button.addEventListener("click", () => dismissBanner(Number(button.dataset.closeBannerId)));
+  });
 }
 
 function startPolling() {
@@ -2751,6 +3075,10 @@ function buildConversationsSignature(conversations) {
         conversation.avatarUrl || "",
         conversation.membershipRole,
         conversation.createdAt,
+        conversation.lastMessagePreview || "",
+        conversation.lastMessageCreatedAt || "",
+        conversation.unreadCount || 0,
+        conversation.muted ? "1" : "0",
       ].join("|")
     )
     .join("::");
@@ -2808,6 +3136,10 @@ function buildMembersSignature(members) {
         member.username,
         member.displayName,
         member.role,
+        member.telegramLinked ? "1" : "0",
+        member.telegramUsername || "",
+        member.online ? "1" : "0",
+        member.lastSeenAt || "",
       ].join("|")
     )
     .join("::");

@@ -1,6 +1,7 @@
 package com.vladislav.tgclone.conversation;
 
 import com.vladislav.tgclone.account.TokenHasher;
+import com.vladislav.tgclone.account.TelegramIdentity;
 import com.vladislav.tgclone.account.UserAccount;
 import com.vladislav.tgclone.account.UserAccountService;
 import com.vladislav.tgclone.common.ForbiddenException;
@@ -16,9 +17,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import com.vladislav.tgclone.security.AuthenticatedUser;
 import org.springframework.stereotype.Service;
@@ -224,6 +227,14 @@ public class ConversationService {
     }
 
     @Transactional(readOnly = true)
+    public List<ConversationSummary> listConversationSummaries(AuthenticatedUser authenticatedUser) {
+        List<ConversationMember> memberships = listMemberships(authenticatedUser);
+        return memberships.stream()
+            .map(membership -> summarizeConversation(membership, authenticatedUser.userId()))
+            .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<ConversationMessage> listMessages(AuthenticatedUser authenticatedUser, Long conversationId) {
         requireMembership(authenticatedUser, conversationId);
         List<ConversationMessage> messages = conversationMessageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversationId);
@@ -355,6 +366,38 @@ public class ConversationService {
     public List<ConversationMember> listMembers(AuthenticatedUser authenticatedUser, Long conversationId) {
         requireMembership(authenticatedUser, conversationId);
         return conversationMemberRepository.findAllByConversation_IdOrderByJoinedAtAsc(conversationId);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<Long, TelegramIdentity> findTelegramIdentitiesByUserIds(List<Long> userIds) {
+        return userAccountService.findTelegramIdentitiesByUserIds(userIds);
+    }
+
+    public boolean isOnline(TelegramIdentity telegramIdentity) {
+        return userAccountService.isOnline(telegramIdentity);
+    }
+
+    @Transactional
+    public ConversationMember updateConversationPreferences(
+        AuthenticatedUser authenticatedUser,
+        Long conversationId,
+        boolean muted
+    ) {
+        ConversationMember membership = requireMembership(authenticatedUser, conversationId);
+        membership.updateMuted(muted);
+        return conversationMemberRepository.save(membership);
+    }
+
+    @Transactional
+    public void markConversationRead(AuthenticatedUser authenticatedUser, Long conversationId) {
+        requireMembership(authenticatedUser, conversationId);
+        Instant latestTimestamp = conversationMessageRepository.findTopByConversation_IdOrderByCreatedAtDescIdDesc(conversationId)
+            .map(ConversationMessage::getCreatedAt)
+            .orElse(null);
+        if (latestTimestamp == null) {
+            return;
+        }
+        conversationMemberRepository.markReadUpTo(conversationId, authenticatedUser.userId(), latestTimestamp);
     }
 
     @Transactional
@@ -586,6 +629,53 @@ public class ConversationService {
         replyToMessage.getAttachments().size();
     }
 
+    private ConversationSummary summarizeConversation(ConversationMember membership, Long currentUserId) {
+        Conversation conversation = membership.getConversation();
+        ConversationMessage latestMessage = conversationMessageRepository
+            .findTopByConversation_IdOrderByCreatedAtDescIdDesc(conversation.getId())
+            .orElse(null);
+        long unreadCount = conversationMessageRepository.countUnreadForUser(
+            conversation.getId(),
+            currentUserId,
+            membership.getLastReadMessageCreatedAt()
+        );
+
+        return new ConversationSummary(
+            membership,
+            summarizeConversationMessage(latestMessage),
+            latestMessage == null ? null : latestMessage.getCreatedAt(),
+            unreadCount
+        );
+    }
+
+    private String summarizeConversationMessage(ConversationMessage latestMessage) {
+        if (latestMessage == null) {
+            return null;
+        }
+
+        String body = normalizeNullable(latestMessage.getBody());
+        if (body != null) {
+            return body.length() > 120 ? body.substring(0, 117) + "..." : body;
+        }
+
+        List<ConversationAttachment> attachments = latestMessage.getAttachments();
+        if (attachments.isEmpty()) {
+            return "Сообщение";
+        }
+        if (attachments.size() > 1) {
+            return attachments.size() + " вложения";
+        }
+
+        ConversationAttachment attachment = attachments.get(0);
+        return switch (attachment.getKind()) {
+            case PHOTO -> "Фото";
+            case VIDEO -> "Видео";
+            case VIDEO_NOTE -> "Кружок";
+            case VOICE -> "Голосовое";
+            case DOCUMENT -> "Файл";
+        };
+    }
+
     private String normalizeBody(String value, List<ConversationAttachmentDraft> attachments) {
         if (value == null || value.isBlank()) {
             if (attachments != null && !attachments.isEmpty()) {
@@ -625,6 +715,14 @@ public class ConversationService {
 
     public record ResolvedConversationAvatar(
         Conversation conversation
+    ) {
+    }
+
+    public record ConversationSummary(
+        ConversationMember membership,
+        String lastMessagePreview,
+        Instant lastMessageCreatedAt,
+        long unreadCount
     ) {
     }
 }

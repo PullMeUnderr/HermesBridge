@@ -6,7 +6,11 @@ import com.vladislav.tgclone.media.StoredMediaFile;
 import com.vladislav.tgclone.security.AuthenticatedUser;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +56,25 @@ public class UserAccountService {
     @Transactional(readOnly = true)
     public Optional<TelegramIdentity> findTelegramIdentityByUserId(Long userId) {
         return telegramIdentityRepository.findByUserAccount_Id(userId);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<Long, TelegramIdentity> findTelegramIdentitiesByUserIds(Collection<Long> userIds) {
+        Map<Long, TelegramIdentity> identitiesByUserId = new LinkedHashMap<>();
+        if (userIds == null || userIds.isEmpty()) {
+            return identitiesByUserId;
+        }
+
+        telegramIdentityRepository.findAllByUserAccount_IdIn(userIds)
+            .forEach(identity -> identitiesByUserId.put(identity.getUserAccount().getId(), identity));
+        return identitiesByUserId;
+    }
+
+    public boolean isOnline(TelegramIdentity telegramIdentity) {
+        if (telegramIdentity == null || telegramIdentity.getLastSeenAt() == null) {
+            return false;
+        }
+        return telegramIdentity.getLastSeenAt().isAfter(clock.instant().minus(5, ChronoUnit.MINUTES));
     }
 
     @Transactional

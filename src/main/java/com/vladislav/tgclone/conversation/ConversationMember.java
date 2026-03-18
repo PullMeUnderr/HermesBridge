@@ -41,6 +41,12 @@ public class ConversationMember {
     @Column(name = "joined_at", nullable = false)
     private Instant joinedAt;
 
+    @Column(name = "muted", nullable = false)
+    private boolean muted;
+
+    @Column(name = "last_read_message_created_at")
+    private Instant lastReadMessageCreatedAt;
+
     protected ConversationMember() {
     }
 
@@ -82,7 +88,28 @@ public class ConversationMember {
         return joinedAt;
     }
 
+    public boolean isMuted() {
+        return muted;
+    }
+
+    public Instant getLastReadMessageCreatedAt() {
+        return lastReadMessageCreatedAt;
+    }
+
     public void updateRole(ConversationMemberRole role) {
         this.role = role;
+    }
+
+    public void updateMuted(boolean muted) {
+        this.muted = muted;
+    }
+
+    public void markReadUpTo(Instant timestamp) {
+        if (timestamp == null) {
+            return;
+        }
+        if (lastReadMessageCreatedAt == null || timestamp.isAfter(lastReadMessageCreatedAt)) {
+            this.lastReadMessageCreatedAt = timestamp;
+        }
     }
 }

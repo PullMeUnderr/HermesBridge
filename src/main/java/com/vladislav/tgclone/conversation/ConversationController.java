@@ -1,14 +1,16 @@
 package com.vladislav.tgclone.conversation;
 
+import com.vladislav.tgclone.account.TelegramIdentity;
 import com.vladislav.tgclone.bridge.MessageRelayService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.io.IOException;
-import java.util.Locale;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Locale;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
@@ -50,12 +52,14 @@ public class ConversationController {
         @Valid @RequestBody CreateConversationRequest request
     ) {
         ConversationMember membership = conversationService.createConversation(authenticatedUser, request.title());
-        return ResponseEntity.status(HttpStatus.CREATED).body(toConversationResponse(membership));
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+            toConversationResponse(new ConversationService.ConversationSummary(membership, null, null, 0))
+        );
     }
 
     @GetMapping
     public List<ConversationResponse> listConversations(@AuthenticationPrincipal AuthenticatedUser authenticatedUser) {
-        return conversationService.listMemberships(authenticatedUser).stream()
+        return conversationService.listConversationSummaries(authenticatedUser).stream()
             .map(this::toConversationResponse)
             .toList();
     }
@@ -65,7 +69,14 @@ public class ConversationController {
         @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
         @PathVariable Long conversationId
     ) {
-        return toConversationResponse(conversationService.requireMembership(authenticatedUser, conversationId));
+        return toConversationResponse(
+            new ConversationService.ConversationSummary(
+                conversationService.requireMembership(authenticatedUser, conversationId),
+                null,
+                null,
+                0
+            )
+        );
     }
 
     @PatchMapping(path = "/{conversationId}/profile", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -84,7 +95,7 @@ public class ConversationController {
             avatarUpload,
             removeAvatar
         );
-        return toConversationResponse(membership);
+        return toConversationResponse(new ConversationService.ConversationSummary(membership, null, null, 0));
     }
 
     @DeleteMapping("/{conversationId}")
@@ -125,6 +136,15 @@ public class ConversationController {
         return conversationService.listMessages(authenticatedUser, conversationId).stream()
             .map(ConversationMessageResponse::from)
             .toList();
+    }
+
+    @PostMapping("/{conversationId}/read")
+    public ResponseEntity<Void> markConversationRead(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+        @PathVariable Long conversationId
+    ) {
+        conversationService.markConversationRead(authenticatedUser, conversationId);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{conversationId}/messages")
@@ -172,9 +192,35 @@ public class ConversationController {
         @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
         @PathVariable Long conversationId
     ) {
-        return conversationService.listMembers(authenticatedUser, conversationId).stream()
-            .map(ConversationMemberResponse::from)
+        List<ConversationMember> members = conversationService.listMembers(authenticatedUser, conversationId);
+        Map<Long, TelegramIdentity> identitiesByUserId = conversationService.findTelegramIdentitiesByUserIds(
+            members.stream().map(member -> member.getUserAccount().getId()).toList()
+        );
+
+        return members.stream()
+            .map(member -> {
+                TelegramIdentity telegramIdentity = identitiesByUserId.get(member.getUserAccount().getId());
+                return ConversationMemberResponse.from(
+                    member,
+                    telegramIdentity,
+                    conversationService.isOnline(telegramIdentity)
+                );
+            })
             .toList();
+    }
+
+    @PatchMapping("/{conversationId}/preferences")
+    public ConversationResponse updateConversationPreferences(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+        @PathVariable Long conversationId,
+        @Valid @RequestBody UpdateConversationPreferencesRequest request
+    ) {
+        ConversationMember membership = conversationService.updateConversationPreferences(
+            authenticatedUser,
+            conversationId,
+            request.muted()
+        );
+        return toConversationResponse(new ConversationService.ConversationSummary(membership, null, null, 0));
     }
 
     @PostMapping("/{conversationId}/invites")
@@ -199,10 +245,11 @@ public class ConversationController {
             userId,
             request.role()
         );
-        return ConversationMemberResponse.from(member);
+        return ConversationMemberResponse.from(member, null, false);
     }
 
-    private ConversationResponse toConversationResponse(ConversationMember membership) {
+    private ConversationResponse toConversationResponse(ConversationService.ConversationSummary summary) {
+        ConversationMember membership = summary.membership();
         Conversation conversation = membership.getConversation();
         return new ConversationResponse(
             conversation.getId(),
@@ -210,7 +257,11 @@ public class ConversationController {
             conversation.getTitle(),
             conversationService.buildConversationAvatarUrl(conversation),
             membership.getRole().name(),
-            conversation.getCreatedAt()
+            conversation.getCreatedAt(),
+            summary.lastMessagePreview(),
+            summary.lastMessageCreatedAt(),
+            summary.unreadCount(),
+            membership.isMuted()
         );
     }
 
@@ -357,13 +408,22 @@ record UpdateConversationMemberRoleRequest(
 ) {
 }
 
+record UpdateConversationPreferencesRequest(
+    boolean muted
+) {
+}
+
 record ConversationResponse(
     Long id,
     String tenantKey,
     String title,
     String avatarUrl,
     String membershipRole,
-    Instant createdAt
+    Instant createdAt,
+    String lastMessagePreview,
+    Instant lastMessageCreatedAt,
+    long unreadCount,
+    boolean muted
 ) {
 }
 
@@ -469,16 +529,28 @@ record ConversationMemberResponse(
     String username,
     String displayName,
     String role,
-    Instant joinedAt
+    Instant joinedAt,
+    boolean telegramLinked,
+    String telegramUsername,
+    boolean online,
+    Instant lastSeenAt
 ) {
 
-    static ConversationMemberResponse from(ConversationMember member) {
+    static ConversationMemberResponse from(
+        ConversationMember member,
+        TelegramIdentity telegramIdentity,
+        boolean online
+    ) {
         return new ConversationMemberResponse(
             member.getUserAccount().getId(),
             member.getUserAccount().getUsername(),
             member.getUserAccount().getDisplayName(),
             member.getRole().name(),
-            member.getJoinedAt()
+            member.getJoinedAt(),
+            telegramIdentity != null,
+            telegramIdentity == null ? null : telegramIdentity.getTelegramUsername(),
+            online,
+            telegramIdentity == null ? null : telegramIdentity.getLastSeenAt()
         );
     }
 }

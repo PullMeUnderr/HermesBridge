@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/app.css?v=20260318-photon-pass-1">
+    <link rel="stylesheet" href="/app.css?v=20260318-product-shell-1">
     <style>
         body{margin:0;background:#07090e;color:#eef2fb;font-family:"IBM Plex Sans Condensed","Segoe UI",sans-serif}
         .page-shell{max-width:1560px;margin:0 auto;padding:20px}
@@ -208,6 +208,7 @@
                             <span>Название чата</span>
                             <input id="conversationTitleInput" type="text" maxlength="200" placeholder="Название чата">
                         </label>
+                        <button id="toggleConversationMuteButton" type="button" class="ghost-button compact-button">Уведомления включены</button>
                         <button id="saveConversationSettingsButton" type="submit" class="secondary-button">Сохранить чат</button>
                         <button id="deleteConversationButton" type="button" class="ghost-button danger-button">Удалить чат</button>
                     </form>
@@ -427,7 +428,13 @@
     </section>
 </div>
 
+<nav id="mobileTabbar" class="mobile-tabbar hidden" aria-label="Навигация Hermes">
+    <button id="mobileChatsTabButton" class="mobile-tabbar-button active" type="button">Чаты</button>
+    <button id="mobileCurrentChatTabButton" class="mobile-tabbar-button" type="button">Диалог</button>
+    <button id="mobileProfileTabButton" class="mobile-tabbar-button" type="button">Профиль</button>
+</nav>
+<div id="notificationCenter" class="notification-center" aria-live="polite" aria-atomic="false"></div>
 <div id="toast" class="toast hidden"></div>
-<script src="/app.js?v=20260318-photon-pass-1" defer></script>
+<script src="/app.js?v=20260318-product-shell-1" defer></script>
 </body>
 </html>

@@ -88,7 +88,9 @@ public class AuthController {
             userAccountService.buildOwnAvatarUrl(userAccount),
             telegramIdentity != null,
             telegramIdentity == null ? null : telegramIdentity.getTelegramUserId(),
-            telegramIdentity == null ? null : telegramIdentity.getTelegramUsername()
+            telegramIdentity == null ? null : telegramIdentity.getTelegramUsername(),
+            telegramIdentity == null ? true : userAccountService.isOnline(telegramIdentity),
+            telegramIdentity == null ? null : telegramIdentity.getLastSeenAt()
         );
     }
 
@@ -139,6 +141,8 @@ record AuthenticatedUserResponse(
     String avatarUrl,
     boolean telegramLinked,
     String telegramUserId,
-    String telegramUsername
+    String telegramUsername,
+    boolean online,
+    java.time.Instant lastSeenAt
 ) {
 }

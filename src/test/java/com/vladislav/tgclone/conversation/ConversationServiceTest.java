@@ -13,6 +13,9 @@ import static org.mockito.Mockito.when;
 import com.vladislav.tgclone.account.TokenHasher;
 import com.vladislav.tgclone.account.UserAccount;
 import com.vladislav.tgclone.account.UserAccountService;
+import com.vladislav.tgclone.bridge.DeliveryRecordRepository;
+import com.vladislav.tgclone.bridge.TransportBindingRepository;
+import com.vladislav.tgclone.media.MediaStorageService;
 import com.vladislav.tgclone.security.AuthenticatedUser;
 import java.time.Clock;
 import java.time.Instant;
@@ -42,10 +45,22 @@ class ConversationServiceTest {
     private ConversationInviteRepository conversationInviteRepository;
 
     @Mock
+    private ConversationAttachmentRepository conversationAttachmentRepository;
+
+    @Mock
+    private TransportBindingRepository transportBindingRepository;
+
+    @Mock
+    private DeliveryRecordRepository deliveryRecordRepository;
+
+    @Mock
     private ConversationAttachmentService conversationAttachmentService;
 
     @Mock
     private UserAccountService userAccountService;
+
+    @Mock
+    private MediaStorageService mediaStorageService;
 
     private ConversationService conversationService;
 
@@ -56,8 +71,12 @@ class ConversationServiceTest {
             conversationMessageRepository,
             conversationMemberRepository,
             conversationInviteRepository,
+            conversationAttachmentRepository,
+            transportBindingRepository,
+            deliveryRecordRepository,
             conversationAttachmentService,
             userAccountService,
+            mediaStorageService,
             new ConversationProperties(168),
             new TokenHasher(),
             Clock.fixed(Instant.parse("2026-03-16T12:00:00Z"), ZoneOffset.UTC)
@@ -88,6 +107,35 @@ class ConversationServiceTest {
         assertEquals("Main chat", membership.getConversation().getTitle());
         assertEquals(ConversationMemberRole.OWNER, membership.getRole());
         assertEquals(7L, membership.getUserAccount().getId());
+    }
+
+    @Test
+    void createConversationReturnsRecentDuplicateForSameOwnerAndTitle() {
+        UserAccount owner = new UserAccount("main", "alice", "Alice", true, Instant.EPOCH);
+        ReflectionTestUtils.setField(owner, "id", 7L);
+        AuthenticatedUser authenticatedUser = AuthenticatedUser.from(owner);
+
+        Conversation conversation = new Conversation("main", "Main chat", Instant.parse("2026-03-16T11:59:55Z"));
+        ReflectionTestUtils.setField(conversation, "id", 15L);
+        ConversationMember existingMembership = new ConversationMember(
+            conversation,
+            owner,
+            null,
+            ConversationMemberRole.OWNER,
+            Instant.parse("2026-03-16T11:59:55Z")
+        );
+
+        when(userAccountService.requireActiveUser(7L)).thenReturn(owner);
+        when(conversationMemberRepository.findTop5ByUserAccount_IdAndRoleOrderByConversation_CreatedAtDesc(
+            7L,
+            ConversationMemberRole.OWNER
+        )).thenReturn(List.of(existingMembership));
+
+        ConversationMember membership = conversationService.createConversation(authenticatedUser, "  Main   chat ");
+
+        assertSame(existingMembership, membership);
+        verify(conversationRepository, never()).save(any(Conversation.class));
+        verify(conversationMemberRepository, never()).save(any(ConversationMember.class));
     }
 
     @Test

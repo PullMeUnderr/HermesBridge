@@ -19,4 +19,6 @@ public interface TransportBindingRepository extends JpaRepository<TransportBindi
         BridgeTransport transport,
         String externalChatId
     );
+
+    void deleteAllByConversation_Id(Long conversationId);
 }

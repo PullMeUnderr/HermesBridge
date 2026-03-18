@@ -5,13 +5,21 @@ import com.vladislav.tgclone.account.UserAccount;
 import com.vladislav.tgclone.account.UserAccountService;
 import com.vladislav.tgclone.common.ForbiddenException;
 import com.vladislav.tgclone.bridge.BridgeTransport;
+import com.vladislav.tgclone.bridge.DeliveryRecordRepository;
+import com.vladislav.tgclone.bridge.TransportBindingRepository;
 import com.vladislav.tgclone.common.NotFoundException;
+import com.vladislav.tgclone.media.MediaStorageService;
+import com.vladislav.tgclone.media.StoredMediaFile;
+import java.io.InputStream;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashSet;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import com.vladislav.tgclone.security.AuthenticatedUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,12 +27,19 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ConversationService {
 
+    private static final int MAX_CONVERSATION_TITLE_LENGTH = 200;
+    private static final int MAX_CONVERSATION_AVATAR_FILENAME_LENGTH = 255;
+
     private final ConversationRepository conversationRepository;
     private final ConversationMessageRepository conversationMessageRepository;
     private final ConversationMemberRepository conversationMemberRepository;
     private final ConversationInviteRepository conversationInviteRepository;
+    private final ConversationAttachmentRepository conversationAttachmentRepository;
+    private final TransportBindingRepository transportBindingRepository;
+    private final DeliveryRecordRepository deliveryRecordRepository;
     private final ConversationAttachmentService conversationAttachmentService;
     private final UserAccountService userAccountService;
+    private final MediaStorageService mediaStorageService;
     private final ConversationProperties conversationProperties;
     private final TokenHasher tokenHasher;
     private final Clock clock;
@@ -35,8 +50,12 @@ public class ConversationService {
         ConversationMessageRepository conversationMessageRepository,
         ConversationMemberRepository conversationMemberRepository,
         ConversationInviteRepository conversationInviteRepository,
+        ConversationAttachmentRepository conversationAttachmentRepository,
+        TransportBindingRepository transportBindingRepository,
+        DeliveryRecordRepository deliveryRecordRepository,
         ConversationAttachmentService conversationAttachmentService,
         UserAccountService userAccountService,
+        MediaStorageService mediaStorageService,
         ConversationProperties conversationProperties,
         TokenHasher tokenHasher,
         Clock clock
@@ -45,8 +64,12 @@ public class ConversationService {
         this.conversationMessageRepository = conversationMessageRepository;
         this.conversationMemberRepository = conversationMemberRepository;
         this.conversationInviteRepository = conversationInviteRepository;
+        this.conversationAttachmentRepository = conversationAttachmentRepository;
+        this.transportBindingRepository = transportBindingRepository;
+        this.deliveryRecordRepository = deliveryRecordRepository;
         this.conversationAttachmentService = conversationAttachmentService;
         this.userAccountService = userAccountService;
+        this.mediaStorageService = mediaStorageService;
         this.conversationProperties = conversationProperties;
         this.tokenHasher = tokenHasher;
         this.clock = clock;
@@ -63,13 +86,17 @@ public class ConversationService {
         if (owner == null || owner.getId() == null) {
             throw new IllegalArgumentException("owner is required");
         }
-        if (title == null || title.isBlank()) {
-            throw new IllegalArgumentException("title is required");
-        }
+
+        String normalizedTitle = normalizeConversationTitle(title);
 
         Instant now = clock.instant();
+        ConversationMember recentDuplicate = findRecentDuplicateConversation(owner, normalizedTitle, now);
+        if (recentDuplicate != null) {
+            return recentDuplicate;
+        }
+
         Conversation conversation = conversationRepository.save(
-            new Conversation(owner.getTenantKey(), title.trim(), now)
+            new Conversation(owner.getTenantKey(), normalizedTitle, now)
         );
         return conversationMemberRepository.save(
             new ConversationMember(conversation, owner, null, ConversationMemberRole.OWNER, now)
@@ -116,6 +143,77 @@ public class ConversationService {
             throw new ForbiddenException("Only owner or admin can manage this chat");
         }
         return membership;
+    }
+
+    @Transactional
+    public ConversationMember updateConversationProfile(
+        AuthenticatedUser authenticatedUser,
+        Long conversationId,
+        String title,
+        AvatarUpload avatarUpload,
+        boolean removeAvatar
+    ) {
+        ConversationMember membership = requireManagerMembership(authenticatedUser, conversationId);
+        Conversation conversation = membership.getConversation();
+
+        conversation.updateTitle(normalizeConversationTitle(title));
+
+        if (avatarUpload != null && avatarUpload.content().length > 0) {
+            validateAvatarUpload(avatarUpload);
+            StoredMediaFile storedMediaFile = mediaStorageService.store(
+                avatarUpload.originalFilename(),
+                avatarUpload.mimeType(),
+                avatarUpload.content()
+            );
+            String previousStorageKey = conversation.getAvatarStorageKey();
+            conversation.updateAvatar(
+                storedMediaFile.storageKey(),
+                storedMediaFile.mimeType(),
+                clipFilename(storedMediaFile.originalFilename()),
+                clock.instant()
+            );
+            if (previousStorageKey != null && !previousStorageKey.isBlank()
+                && !previousStorageKey.equals(storedMediaFile.storageKey())) {
+                mediaStorageService.delete(previousStorageKey);
+            }
+        } else if (removeAvatar) {
+            String previousStorageKey = conversation.getAvatarStorageKey();
+            conversation.clearAvatar();
+            if (previousStorageKey != null && !previousStorageKey.isBlank()) {
+                mediaStorageService.delete(previousStorageKey);
+            }
+        }
+
+        conversationRepository.save(conversation);
+        return membership;
+    }
+
+    @Transactional
+    public void deleteConversation(AuthenticatedUser authenticatedUser, Long conversationId) {
+        Conversation conversation = requireOwnerMembership(authenticatedUser, conversationId).getConversation();
+        String avatarStorageKey = conversation.getAvatarStorageKey();
+
+        List<ConversationAttachment> attachments = conversationAttachmentRepository.findAllByMessage_Conversation_Id(conversationId);
+        Set<String> attachmentStorageKeys = new LinkedHashSet<>();
+        for (ConversationAttachment attachment : attachments) {
+            if (attachment.getStorageKey() != null && !attachment.getStorageKey().isBlank()) {
+                attachmentStorageKeys.add(attachment.getStorageKey());
+            }
+        }
+
+        deliveryRecordRepository.deleteAllByConversationMessage_Conversation_Id(conversationId);
+        conversationAttachmentRepository.deleteAllByMessage_Conversation_Id(conversationId);
+        conversationMessageRepository.clearReplyReferences(conversationId);
+        conversationMessageRepository.deleteAllByConversation_Id(conversationId);
+        transportBindingRepository.deleteAllByConversation_Id(conversationId);
+        conversationInviteRepository.deleteAllByConversation_Id(conversationId);
+        conversationMemberRepository.deleteAllByConversation_Id(conversationId);
+        conversationRepository.delete(conversation);
+
+        attachmentStorageKeys.forEach(mediaStorageService::delete);
+        if (avatarStorageKey != null && !avatarStorageKey.isBlank()) {
+            mediaStorageService.delete(avatarStorageKey);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -354,11 +452,109 @@ public class ConversationService {
         return new ConversationInviteAcceptanceResult(membership, false);
     }
 
+    @Transactional(readOnly = true)
+    public ResolvedConversationAvatar resolveConversationAvatar(AuthenticatedUser authenticatedUser, Long conversationId) {
+        Conversation conversation = requireMembership(authenticatedUser, conversationId).getConversation();
+        if (conversation.getAvatarStorageKey() == null || conversation.getAvatarStorageKey().isBlank()) {
+            throw new NotFoundException("Conversation avatar not found");
+        }
+        if (!mediaStorageService.exists(conversation.getAvatarStorageKey())) {
+            throw new NotFoundException("Conversation avatar content not found");
+        }
+        return new ResolvedConversationAvatar(conversation);
+    }
+
+    public String buildConversationAvatarUrl(Conversation conversation) {
+        if (conversation == null || conversation.getAvatarStorageKey() == null || conversation.getAvatarStorageKey().isBlank()) {
+            return null;
+        }
+
+        Instant versionSource = conversation.getAvatarUpdatedAt();
+        String version = versionSource == null
+            ? String.valueOf(conversation.getId())
+            : String.valueOf(versionSource.toEpochMilli());
+        return "/api/conversations/" + conversation.getId() + "/avatar?v=" + version;
+    }
+
+    public InputStream openAvatarStream(Conversation conversation) {
+        if (conversation == null || conversation.getAvatarStorageKey() == null || conversation.getAvatarStorageKey().isBlank()) {
+            throw new NotFoundException("Conversation avatar not found");
+        }
+        return mediaStorageService.openStream(conversation.getAvatarStorageKey());
+    }
+
     private String normalizeAuthorName(String value) {
         if (value == null || value.isBlank()) {
             return "Unknown";
         }
         return value.trim();
+    }
+
+    private ConversationMember findRecentDuplicateConversation(UserAccount owner, String normalizedTitle, Instant now) {
+        Instant dedupeThreshold = now.minusSeconds(12);
+        for (ConversationMember membership : conversationMemberRepository
+            .findTop5ByUserAccount_IdAndRoleOrderByConversation_CreatedAtDesc(owner.getId(), ConversationMemberRole.OWNER)) {
+            Conversation conversation = membership.getConversation();
+            if (conversation == null || conversation.getCreatedAt() == null) {
+                continue;
+            }
+            if (conversation.getCreatedAt().isBefore(dedupeThreshold)) {
+                continue;
+            }
+            if (normalizeConversationTitleForCompare(conversation.getTitle()).equals(
+                normalizeConversationTitleForCompare(normalizedTitle)
+            )) {
+                return membership;
+            }
+        }
+        return null;
+    }
+
+    private String normalizeConversationTitle(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("title is required");
+        }
+
+        String normalized = value.trim().replaceAll("\\s+", " ");
+        if (normalized.length() > MAX_CONVERSATION_TITLE_LENGTH) {
+            normalized = normalized.substring(0, MAX_CONVERSATION_TITLE_LENGTH);
+        }
+        return normalized;
+    }
+
+    private String normalizeConversationTitleForCompare(String value) {
+        return normalizeConversationTitle(value).toLowerCase(Locale.ROOT);
+    }
+
+    private void validateAvatarUpload(AvatarUpload avatarUpload) {
+        String mimeType = avatarUpload.mimeType() == null ? "" : avatarUpload.mimeType().trim().toLowerCase(Locale.ROOT);
+        String fileName = avatarUpload.originalFilename() == null ? "" : avatarUpload.originalFilename().trim().toLowerCase(Locale.ROOT);
+
+        boolean imageMime = mimeType.startsWith("image/");
+        boolean imageExtension = fileName.endsWith(".jpg")
+            || fileName.endsWith(".jpeg")
+            || fileName.endsWith(".png")
+            || fileName.endsWith(".gif")
+            || fileName.endsWith(".webp")
+            || fileName.endsWith(".bmp")
+            || fileName.endsWith(".heic")
+            || fileName.endsWith(".heif")
+            || fileName.endsWith(".svg");
+
+        if (!imageMime && !imageExtension) {
+            throw new IllegalArgumentException("Аватар чата должен быть изображением");
+        }
+    }
+
+    private String clipFilename(String value) {
+        if (value == null || value.isBlank()) {
+            return "avatar";
+        }
+        String normalized = value.trim();
+        if (normalized.length() > MAX_CONVERSATION_AVATAR_FILENAME_LENGTH) {
+            return normalized.substring(0, MAX_CONVERSATION_AVATAR_FILENAME_LENGTH);
+        }
+        return normalized;
     }
 
     private ConversationMessage resolveReplyToMessage(Long conversationId, Long replyToMessageId) {
@@ -418,5 +614,17 @@ public class ConversationService {
         byte[] bytes = new byte[18];
         secureRandom.nextBytes(bytes);
         return "join_" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    public record AvatarUpload(
+        String originalFilename,
+        String mimeType,
+        byte[] content
+    ) {
+    }
+
+    public record ResolvedConversationAvatar(
+        Conversation conversation
+    ) {
     }
 }

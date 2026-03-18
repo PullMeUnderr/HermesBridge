@@ -25,24 +25,32 @@ const state = {
   videoNoteRecorderStream: null,
   videoNoteRecorderChunks: [],
   videoNoteRecorderMimeType: "",
+  videoNotePreviewOpen: false,
   isRecordingVideoNote: false,
-  activeVideoNotePointerId: null,
   videoNoteTargetConversationId: null,
   discardVideoNoteOnStop: false,
   videoNoteRecordingStartedAt: null,
   videoNoteRecordingTimerHandle: null,
-  videoNoteRecordingLocked: false,
-  videoNotePointerStartY: null,
   videoNoteCameraFacingMode: "user",
   videoNoteCameraSwitchInFlight: false,
+  videoNoteSourceVideo: null,
+  videoNotePreviewRenderHandle: null,
+  videoNoteCaptureCanvas: null,
+  videoNoteCaptureStream: null,
   profileAvatarPreviewUrl: null,
   profileAvatarRemoveRequested: false,
   profileSaveInFlight: false,
+  conversationAvatarPreviewUrl: null,
+  conversationAvatarRemoveRequested: false,
+  conversationSettingsSaveInFlight: false,
+  conversationDeleteInFlight: false,
+  createChatInFlight: false,
   sendAsVideoNote: false,
   metricFitFrame: null,
   mobileScreen: "sidebar",
   mobileMembersOpen: false,
   desktopMembersOpen: false,
+  drawerConversationId: null,
   replyToMessageId: null,
   mentionSuggestions: [],
   activeMentionRange: null,
@@ -61,15 +69,24 @@ const elements = {
   logoutButton: document.getElementById("logoutButton"),
   openCreateDrawerButton: document.getElementById("openCreateDrawerButton"),
   openJoinDrawerButton: document.getElementById("openJoinDrawerButton"),
+  conversationSettingsForm: document.getElementById("conversationSettingsForm"),
+  conversationTitleInput: document.getElementById("conversationTitleInput"),
+  conversationAvatarInput: document.getElementById("conversationAvatarInput"),
+  conversationAvatarPreview: document.getElementById("conversationAvatarPreview"),
+  clearConversationAvatarButton: document.getElementById("clearConversationAvatarButton"),
+  saveConversationSettingsButton: document.getElementById("saveConversationSettingsButton"),
+  deleteConversationButton: document.getElementById("deleteConversationButton"),
   sidebarDrawer: document.getElementById("sidebarDrawer"),
   drawerEyebrow: document.getElementById("drawerEyebrow"),
   drawerTitle: document.getElementById("drawerTitle"),
   drawerCreateView: document.getElementById("drawerCreateView"),
   drawerJoinView: document.getElementById("drawerJoinView"),
   drawerProfileView: document.getElementById("drawerProfileView"),
+  drawerConversationView: document.getElementById("drawerConversationView"),
   closeDrawerButton: document.getElementById("closeDrawerButton"),
   createChatForm: document.getElementById("createChatForm"),
   newChatTitle: document.getElementById("newChatTitle"),
+  createChatSubmitButton: document.getElementById("createChatSubmitButton"),
   joinInviteForm: document.getElementById("joinInviteForm"),
   inviteCodeInput: document.getElementById("inviteCodeInput"),
   profileForm: document.getElementById("profileForm"),
@@ -115,8 +132,11 @@ const elements = {
   videoNoteRecordingStatus: document.getElementById("videoNoteRecordingStatus"),
   videoNoteRecordingMeta: document.getElementById("videoNoteRecordingMeta"),
   videoNoteRecordingTimer: document.getElementById("videoNoteRecordingTimer"),
-  videoNoteRecordingVideo: document.getElementById("videoNoteRecordingVideo"),
+  videoNoteRecordingBadge: document.getElementById("videoNoteRecordingBadge"),
+  videoNoteRecordingCanvas: document.getElementById("videoNoteRecordingCanvas"),
   switchVideoNoteCameraButton: document.getElementById("switchVideoNoteCameraButton"),
+  toggleVideoNoteRecordingButton: document.getElementById("toggleVideoNoteRecordingButton"),
+  cancelVideoNotePreviewButton: document.getElementById("cancelVideoNotePreviewButton"),
   replyComposerPreview: document.getElementById("replyComposerPreview"),
   replyComposerAuthor: document.getElementById("replyComposerAuthor"),
   replyComposerExcerpt: document.getElementById("replyComposerExcerpt"),
@@ -156,7 +176,12 @@ elements.logoutButton.addEventListener("click", () => {
   state.messageSubmitInFlight = false;
   state.profileSaveInFlight = false;
   state.profileAvatarRemoveRequested = false;
+  state.conversationAvatarRemoveRequested = false;
+  state.conversationSettingsSaveInFlight = false;
+  state.conversationDeleteInFlight = false;
+  state.createChatInFlight = false;
   state.sendAsVideoNote = false;
+  state.drawerConversationId = null;
   state.videoNoteTargetConversationId = null;
   state.mobileScreen = "sidebar";
   state.mobileMembersOpen = false;
@@ -164,7 +189,9 @@ elements.logoutButton.addEventListener("click", () => {
   clearReplyTarget();
   clearMentionSuggestions();
   revokeProfileAvatarPreviewUrl();
+  revokeConversationAvatarPreviewUrl();
   elements.profileAvatarInput.value = "";
+  elements.conversationAvatarInput.value = "";
   cancelVideoNoteRecording(true);
   discardRecordedVoice();
   resetAttachmentObjectUrls();
@@ -218,11 +245,18 @@ elements.closeDrawerButton.addEventListener("click", () => {
 
 elements.createChatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (state.createChatInFlight) {
+    return;
+  }
+
   const title = elements.newChatTitle.value.trim();
   if (!title) {
     showToast("Нужно название чата.", "error");
     return;
   }
+
+  state.createChatInFlight = true;
+  renderDrawer();
 
   try {
     const created = await api("/api/conversations", {
@@ -236,6 +270,9 @@ elements.createChatForm.addEventListener("submit", async (event) => {
     showToast(`Чат "${created.title}" создан.`, "success");
   } catch (error) {
     showToast(error.message, "error");
+  } finally {
+    state.createChatInFlight = false;
+    renderDrawer();
   }
 });
 
@@ -337,6 +374,122 @@ elements.clearProfileAvatarButton.addEventListener("click", () => {
   renderProfileForm();
 });
 
+elements.conversationSettingsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const conversation = getDrawerConversation();
+  if (!conversation || state.conversationSettingsSaveInFlight || state.conversationDeleteInFlight) {
+    return;
+  }
+
+  const title = elements.conversationTitleInput.value.trim();
+  if (!title) {
+    showToast("Нужно название чата.", "error");
+    return;
+  }
+
+  state.conversationSettingsSaveInFlight = true;
+  renderConversationSettingsForm();
+
+  try {
+    const formData = new FormData();
+    formData.append("title", title);
+    if (state.conversationAvatarRemoveRequested) {
+      formData.append("removeAvatar", "true");
+    }
+    const avatarFile = elements.conversationAvatarInput.files?.[0];
+    if (avatarFile) {
+      formData.append("avatar", avatarFile);
+    }
+
+    const updated = await api(`/api/conversations/${conversation.id}/profile`, {
+      method: "PATCH",
+      body: formData,
+    });
+    mergeConversation(updated);
+    state.drawerConversationId = updated.id;
+    revokeConversationAvatarPreviewUrl();
+    state.conversationAvatarRemoveRequested = false;
+    elements.conversationAvatarInput.value = "";
+    render();
+    showToast("Чат обновлен.", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    state.conversationSettingsSaveInFlight = false;
+    renderConversationSettingsForm();
+  }
+});
+
+elements.conversationAvatarInput.addEventListener("change", () => {
+  const file = elements.conversationAvatarInput.files?.[0];
+  revokeConversationAvatarPreviewUrl();
+
+  if (!file) {
+    renderConversationSettingsForm();
+    return;
+  }
+
+  if (!(file.type || "").toLowerCase().startsWith("image/")) {
+    elements.conversationAvatarInput.value = "";
+    showToast("Аватар чата должен быть изображением.", "error");
+    renderConversationSettingsForm();
+    return;
+  }
+
+  state.conversationAvatarRemoveRequested = false;
+  state.conversationAvatarPreviewUrl = URL.createObjectURL(file);
+  renderConversationSettingsForm();
+});
+
+elements.clearConversationAvatarButton.addEventListener("click", () => {
+  revokeConversationAvatarPreviewUrl();
+  elements.conversationAvatarInput.value = "";
+  state.conversationAvatarRemoveRequested = !state.conversationAvatarRemoveRequested && Boolean(getDrawerConversation()?.avatarUrl);
+  renderConversationSettingsForm();
+});
+
+elements.deleteConversationButton.addEventListener("click", async () => {
+  const conversation = getDrawerConversation();
+  if (!conversation || state.conversationDeleteInFlight || state.conversationSettingsSaveInFlight) {
+    return;
+  }
+
+  const confirmed = window.confirm(`Удалить чат "${conversation.title}"? Это действие нельзя отменить.`);
+  if (!confirmed) {
+    return;
+  }
+
+  state.conversationDeleteInFlight = true;
+  renderConversationSettingsForm();
+
+  try {
+    await api(`/api/conversations/${conversation.id}`, {
+      method: "DELETE",
+    });
+    revokeConversationAvatarPreviewUrl();
+    elements.conversationAvatarInput.value = "";
+    state.conversationAvatarRemoveRequested = false;
+    state.drawerConversationId = null;
+    state.selectedConversationId = null;
+    state.currentMessages = [];
+    state.currentMessagesSignature = "";
+    state.currentMembers = [];
+    state.currentMembersSignature = "";
+    resetAttachmentObjectUrls();
+    await loadConversations();
+    if (!isMobileViewport() && state.conversations.length > 0) {
+      selectConversation(state.conversations[0].id);
+    }
+    render();
+    showToast("Чат удален.", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    state.conversationDeleteInFlight = false;
+    renderConversationSettingsForm();
+  }
+});
+
 elements.refreshChatsButton.addEventListener("click", async () => {
   await guardedAction(loadConversations);
 });
@@ -382,91 +535,34 @@ elements.sendAsVideoNoteButton.addEventListener("click", () => {
   renderComposerState();
 });
 
-elements.recordVideoNoteButton.addEventListener("pointerdown", async (event) => {
-  event.preventDefault();
-  if (state.isRecordingVideoNote && state.videoNoteRecordingLocked) {
-    stopVideoNoteRecording();
-    return;
-  }
-  if (state.isRecordingVideoNote || state.messageSubmitInFlight) {
+elements.recordVideoNoteButton.addEventListener("click", async () => {
+  if (state.messageSubmitInFlight || state.isRecordingVoice || state.isRecordingVideoNote) {
     return;
   }
 
-  const started = await startVideoNoteRecording(event.pointerId);
-  if (started) {
-    state.videoNotePointerStartY = event.clientY;
-    elements.recordVideoNoteButton.setPointerCapture?.(event.pointerId);
-  }
-});
-
-elements.recordVideoNoteButton.addEventListener("pointermove", (event) => {
-  if (
-    !state.isRecordingVideoNote
-    || state.videoNoteRecordingLocked
-    || state.activeVideoNotePointerId !== event.pointerId
-    || state.videoNotePointerStartY == null
-  ) {
+  if (state.videoNotePreviewOpen) {
+    cancelVideoNoteRecording();
     return;
   }
 
-  const deltaY = state.videoNotePointerStartY - event.clientY;
-  if (deltaY < 72) {
-    return;
-  }
-
-  state.videoNoteRecordingLocked = true;
-  state.activeVideoNotePointerId = null;
-  state.videoNotePointerStartY = null;
-  try {
-    elements.recordVideoNoteButton.releasePointerCapture?.(event.pointerId);
-  } catch (error) {
-    // Best effort only.
-  }
-  renderSelectedAttachments();
-  renderComposerState();
-});
-
-elements.recordVideoNoteButton.addEventListener("pointerup", (event) => {
-  if (state.videoNoteRecordingLocked) {
-    return;
-  }
-  if (state.activeVideoNotePointerId !== event.pointerId) {
-    return;
-  }
-  stopVideoNoteRecording();
-});
-
-elements.recordVideoNoteButton.addEventListener("pointercancel", (event) => {
-  if (state.videoNoteRecordingLocked) {
-    return;
-  }
-  if (state.activeVideoNotePointerId !== event.pointerId) {
-    return;
-  }
-  cancelVideoNoteRecording();
-});
-
-elements.recordVideoNoteButton.addEventListener("lostpointercapture", (event) => {
-  if (state.videoNoteRecordingLocked) {
-    return;
-  }
-  if (state.activeVideoNotePointerId !== event.pointerId) {
-    return;
-  }
-
-  if (state.isRecordingVideoNote) {
-    stopVideoNoteRecording();
-  }
-});
-
-elements.recordVideoNoteButton.addEventListener("contextmenu", (event) => {
-  if (state.isRecordingVideoNote) {
-    event.preventDefault();
-  }
+  await openVideoNotePreview();
 });
 
 elements.switchVideoNoteCameraButton.addEventListener("click", async () => {
   await switchVideoNoteCamera();
+});
+
+elements.toggleVideoNoteRecordingButton.addEventListener("click", async () => {
+  if (state.isRecordingVideoNote) {
+    stopVideoNoteRecording();
+    return;
+  }
+
+  await startVideoNoteRecording();
+});
+
+elements.cancelVideoNotePreviewButton.addEventListener("click", () => {
+  cancelVideoNoteRecording();
 });
 
 elements.recordVoiceButton.addEventListener("click", async () => {
@@ -503,8 +599,13 @@ elements.messageForm.addEventListener("submit", async (event) => {
     showToast("Сначала останови запись голосового.", "error");
     return;
   }
-  if (state.isRecordingVideoNote) {
-    showToast("Сначала отпусти кнопку кружка.", "error");
+  if (state.videoNotePreviewOpen) {
+    showToast(
+      state.isRecordingVideoNote
+        ? "Сначала останови запись кружка."
+        : "Сначала заверши или закрой режим кружка.",
+      "error"
+    );
     return;
   }
 
@@ -633,6 +734,7 @@ async function loadConversations() {
     selectedConversationMissing
   ) {
     state.selectedConversationId = null;
+    state.drawerConversationId = null;
     state.currentMessages = [];
     state.currentMessagesSignature = "";
     state.currentMembers = [];
@@ -704,6 +806,8 @@ async function refreshCurrentConversation() {
 }
 
 function selectConversation(conversationId) {
+  cancelVideoNoteRecording(true);
+  discardRecordedVoice();
   state.selectedConversationId = conversationId;
   state.currentMessages = [];
   state.currentMessagesSignature = "";
@@ -795,17 +899,20 @@ function renderConversationList() {
     .map((conversation) => {
       const active = conversation.id === state.selectedConversationId ? "active" : "";
       return `
-        <button class="conversation-item ${active}" data-conversation-id="${conversation.id}">
-          <span class="conversation-avatar">${escapeHtml(getInitials(conversation.title))}</span>
-          <span class="conversation-copy">
-            <span class="conversation-kicker">Chat #${conversation.id}</span>
-            <span class="title">${escapeHtml(conversation.title)}</span>
-            <span class="conversation-footer">
-              <span class="mini-pill">${escapeHtml(conversation.membershipRole)}</span>
-              <span class="meta">${conversation.createdAt ? escapeHtml(formatTimestamp(conversation.createdAt)) : "Готов к синку"}</span>
+        <article class="conversation-item-shell ${active}">
+          <button class="conversation-item ${active}" data-conversation-id="${conversation.id}" type="button">
+            ${renderAvatarMarkup(conversation.title, conversation.avatarUrl, "conversation-avatar")}
+            <span class="conversation-copy">
+              <span class="conversation-kicker">Chat #${conversation.id}</span>
+              <span class="title">${escapeHtml(conversation.title)}</span>
+              <span class="conversation-footer">
+                <span class="mini-pill">${escapeHtml(conversation.membershipRole)}</span>
+                <span class="meta">${conversation.createdAt ? escapeHtml(formatTimestamp(conversation.createdAt)) : "Готов к синку"}</span>
+              </span>
             </span>
-          </span>
-        </button>
+          </button>
+          <button class="conversation-menu-button" data-conversation-menu-id="${conversation.id}" type="button" aria-label="Действия с чатом">⋯</button>
+        </article>
       `;
     })
     .join("");
@@ -815,10 +922,20 @@ function renderConversationList() {
       selectConversation(Number(button.dataset.conversationId));
     });
   });
+  elements.conversationList.querySelectorAll("[data-conversation-menu-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openConversationDrawer(Number(button.dataset.conversationMenuId));
+    });
+  });
+  hydrateProtectedImagePreviews(elements.conversationList).catch(() => {});
 }
 
 function toggleDrawer(mode) {
   state.sidebarDrawerMode = state.sidebarDrawerMode === mode ? null : mode;
+  if (state.sidebarDrawerMode !== "conversation") {
+    state.drawerConversationId = null;
+  }
   renderDrawer();
 
   if (state.sidebarDrawerMode === "create") {
@@ -835,6 +952,14 @@ function toggleDrawer(mode) {
   }
 }
 
+function openConversationDrawer(conversationId) {
+  state.drawerConversationId = conversationId;
+  state.sidebarDrawerMode = "conversation";
+  renderConversationSettingsForm();
+  renderDrawer();
+  window.setTimeout(() => elements.conversationTitleInput?.focus(), 180);
+}
+
 function closeDrawer() {
   if (state.sidebarDrawerMode === "profile") {
     revokeProfileAvatarPreviewUrl();
@@ -842,7 +967,15 @@ function closeDrawer() {
     state.profileSaveInFlight = false;
     elements.profileAvatarInput.value = "";
   }
+  if (state.sidebarDrawerMode === "conversation") {
+    revokeConversationAvatarPreviewUrl();
+    state.conversationAvatarRemoveRequested = false;
+    state.conversationSettingsSaveInFlight = false;
+    state.conversationDeleteInFlight = false;
+    elements.conversationAvatarInput.value = "";
+  }
   state.sidebarDrawerMode = null;
+  state.drawerConversationId = null;
   renderDrawer();
 }
 
@@ -850,13 +983,15 @@ function renderDrawer() {
   const isCreate = state.sidebarDrawerMode === "create";
   const isJoin = state.sidebarDrawerMode === "join";
   const isProfile = state.sidebarDrawerMode === "profile";
-  const isOpen = isCreate || isJoin || isProfile;
+  const isConversation = state.sidebarDrawerMode === "conversation";
+  const isOpen = isCreate || isJoin || isProfile || isConversation;
 
   elements.sidebarDrawer.dataset.open = String(isOpen);
   elements.sidebarDrawer.setAttribute("aria-hidden", String(!isOpen));
   elements.drawerCreateView.classList.toggle("hidden", !isCreate);
   elements.drawerJoinView.classList.toggle("hidden", !isJoin);
   elements.drawerProfileView.classList.toggle("hidden", !isProfile);
+  elements.drawerConversationView.classList.toggle("hidden", !isConversation);
   elements.openCreateDrawerButton.classList.toggle("active", isCreate);
   elements.openJoinDrawerButton.classList.toggle("active", isJoin);
 
@@ -869,10 +1004,19 @@ function renderDrawer() {
   } else if (isProfile) {
     elements.drawerEyebrow.textContent = "Профиль";
     elements.drawerTitle.textContent = "Настроить Hermes-профиль";
+  } else if (isConversation) {
+    const conversation = getDrawerConversation();
+    elements.drawerEyebrow.textContent = "Чат";
+    elements.drawerTitle.textContent = conversation ? conversation.title : "Действия с чатом";
+    renderConversationSettingsForm();
   } else {
     elements.drawerEyebrow.textContent = "Панель действий";
     elements.drawerTitle.textContent = "Выбери действие";
   }
+
+  elements.newChatTitle.disabled = state.createChatInFlight;
+  elements.createChatSubmitButton.disabled = state.createChatInFlight;
+  elements.createChatSubmitButton.textContent = state.createChatInFlight ? "Создаем..." : "Создать чат";
 }
 
 function prepareProfileForm() {
@@ -925,10 +1069,82 @@ function renderProfileForm() {
   }
 }
 
+function getSelectedConversation() {
+  return state.conversations.find((conversation) => conversation.id === state.selectedConversationId) || null;
+}
+
+function getDrawerConversation() {
+  const conversationId = state.drawerConversationId ?? state.selectedConversationId;
+  return state.conversations.find((conversation) => conversation.id === conversationId) || null;
+}
+
 function revokeProfileAvatarPreviewUrl() {
   if (state.profileAvatarPreviewUrl) {
     URL.revokeObjectURL(state.profileAvatarPreviewUrl);
     state.profileAvatarPreviewUrl = null;
+  }
+}
+
+function revokeConversationAvatarPreviewUrl() {
+  if (state.conversationAvatarPreviewUrl) {
+    URL.revokeObjectURL(state.conversationAvatarPreviewUrl);
+    state.conversationAvatarPreviewUrl = null;
+  }
+}
+
+function mergeConversation(updatedConversation) {
+  const index = state.conversations.findIndex((conversation) => conversation.id === updatedConversation.id);
+  if (index === -1) {
+    return;
+  }
+
+  state.conversations.splice(index, 1, updatedConversation);
+  state.conversationsSignature = buildConversationsSignature(state.conversations);
+}
+
+function renderConversationSettingsForm() {
+  const conversation = getDrawerConversation();
+  if (!conversation) {
+    elements.conversationAvatarPreview.innerHTML = "";
+    return;
+  }
+
+  if (document.activeElement !== elements.conversationTitleInput) {
+    elements.conversationTitleInput.value = conversation.title || "";
+  }
+
+  const previewUrl = state.conversationAvatarRemoveRequested
+    ? null
+    : state.conversationAvatarPreviewUrl || conversation.avatarUrl;
+  const usesProtectedUrl = !state.conversationAvatarPreviewUrl && Boolean(previewUrl);
+
+  elements.conversationTitleInput.disabled = state.conversationSettingsSaveInFlight || state.conversationDeleteInFlight;
+  elements.conversationAvatarInput.disabled = state.conversationSettingsSaveInFlight || state.conversationDeleteInFlight;
+  elements.saveConversationSettingsButton.disabled = state.conversationSettingsSaveInFlight || state.conversationDeleteInFlight;
+  elements.deleteConversationButton.disabled = state.conversationSettingsSaveInFlight || state.conversationDeleteInFlight;
+  elements.clearConversationAvatarButton.disabled = state.conversationSettingsSaveInFlight
+    || state.conversationDeleteInFlight
+    || (!state.conversationAvatarPreviewUrl && !state.conversationAvatarRemoveRequested && !conversation.avatarUrl);
+  elements.saveConversationSettingsButton.textContent = state.conversationSettingsSaveInFlight
+    ? "Сохраняем..."
+    : "Сохранить чат";
+  elements.deleteConversationButton.textContent = state.conversationDeleteInFlight
+    ? "Удаляем..."
+    : "Удалить чат";
+  elements.clearConversationAvatarButton.textContent = state.conversationAvatarRemoveRequested
+    ? "Аватар уберется"
+    : "Убрать аватар";
+
+  elements.conversationAvatarPreview.innerHTML = `
+    ${renderAvatarMarkup(conversation.title, previewUrl, "conversation-avatar", { protectedSource: usesProtectedUrl })}
+    <div class="stack gap-sm">
+      <strong>${escapeHtml(conversation.title)}</strong>
+      <span class="muted">Чат #${conversation.id}</span>
+    </div>
+  `;
+
+  if (usesProtectedUrl) {
+    hydrateProtectedImagePreviews(elements.conversationAvatarPreview).catch(() => {});
   }
 }
 
@@ -1036,11 +1252,11 @@ function renderConversationHeader() {
   elements.toggleMembersButton.classList.toggle("hidden", !hasSelection);
   const mobileViewport = isMobileViewport();
   const membersActionLabel = membersPanelOpen ? "Скрыть состав" : "Состав";
-  elements.toggleMembersButton.textContent = mobileViewport ? "☰" : membersActionLabel;
+  elements.toggleMembersButton.textContent = mobileViewport ? "≡" : membersActionLabel;
   elements.toggleMembersButton.setAttribute("aria-label", membersActionLabel);
   elements.toggleMembersButton.title = membersActionLabel;
   const inviteActionLabel = "Создать инвайт";
-  elements.createInviteButton.textContent = mobileViewport ? "＋" : inviteActionLabel;
+  elements.createInviteButton.textContent = mobileViewport ? "+" : inviteActionLabel;
   elements.createInviteButton.setAttribute("aria-label", inviteActionLabel);
   elements.createInviteButton.title = inviteActionLabel;
   const refreshActionLabel = "Обновить";
@@ -1061,6 +1277,7 @@ function renderConversationHeader() {
   elements.conversationTitle.textContent = selectedConversation.title;
   elements.conversationRole.textContent = selectedConversation.membershipRole;
   elements.conversationMeta.textContent = formatConversationMeta(selectedConversation.id, state.currentMembers.length || 0);
+  renderConversationSettingsForm();
   syncMobileLayout();
 }
 
@@ -1153,10 +1370,23 @@ function renderMessages() {
       const mine = message.authorUserId && state.me && message.authorUserId === state.me.id;
       const author = mine && state.me ? state.me.displayName : message.authorDisplayName || "Unknown";
       const transport = message.sourceTransport === "INTERNAL" ? "Hermes" : message.sourceTransport;
+      const attachments = message.attachments || [];
+      const hasAttachments = attachments.length > 0;
+      const mediaOnly = hasAttachments && !String(message.body || "").trim();
+      const sourceClass = message.sourceTransport === "TELEGRAM" ? "from-telegram" : "from-hermes";
+      const messageCardClassName = [
+        "message-card",
+        mine ? "mine" : "",
+        sourceClass,
+        hasAttachments ? "has-attachments" : "",
+        mediaOnly ? "media-only" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
       return `
         <div class="message-row ${mine ? "mine" : ""}" data-message-id="${message.id}">
           ${renderAvatarMarkup(author, mine ? state.me.avatarUrl : null, "message-avatar")}
-          <article class="message-card ${mine ? "mine" : ""}">
+          <article class="${messageCardClassName}">
             <div class="message-topline">
               <div class="message-author">${escapeHtml(author)}</div>
               <div class="message-actions">
@@ -1165,7 +1395,7 @@ function renderMessages() {
               </div>
             </div>
             ${renderReplySnippet(message.replyTo)}
-            ${renderMessageAttachments(message.attachments || [])}
+            ${renderMessageAttachments(attachments)}
             ${renderMessageBody(message.body)}
             <div class="message-meta">${formatTimestamp(message.createdAt)}</div>
           </article>
@@ -1257,10 +1487,22 @@ async function guardedAction(action) {
   }
 }
 
+function shouldAttachNgrokBypassHeader() {
+  return /\.ngrok(-free)?\.(app|dev|io|pizza)$/i.test(window.location.hostname);
+}
+
+function buildAuthorizedHeaders(headers = {}) {
+  return {
+    Authorization: `Bearer ${state.token}`,
+    ...(shouldAttachNgrokBypassHeader() ? { "ngrok-skip-browser-warning": "true" } : {}),
+    ...headers,
+  };
+}
+
 async function api(path, options = {}) {
   const isFormData = options.body instanceof FormData;
   const headers = {
-    Authorization: `Bearer ${state.token}`,
+    ...buildAuthorizedHeaders(),
     ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers || {}),
   };
@@ -1400,6 +1642,8 @@ function renderAttachmentCard(attachment) {
           data-content-url="${escapeHtml(attachment.contentUrl)}"
           data-mime-type="${escapeHtml(attachment.mimeType || "")}"
           data-file-name="${escapeHtml(attachment.fileName || "")}"
+          loading="lazy"
+          decoding="async"
           alt="${escapeHtml(attachment.fileName)}"
         >
         <figcaption class="attachment-caption">
@@ -1951,9 +2195,7 @@ async function ensureProtectedObjectUrl(resourceKey, contentUrl, options = {}) {
   }
 
   const response = await fetch(contentUrl, {
-    headers: {
-      Authorization: `Bearer ${state.token}`,
-    },
+    headers: buildAuthorizedHeaders(),
     cache: "no-store",
   });
   if (!response.ok) {
@@ -2061,9 +2303,7 @@ function inferMimeTypeFromFilename(fileName) {
 
 async function downloadAttachment(contentUrl, fileName) {
   const response = await fetch(contentUrl, {
-    headers: {
-      Authorization: `Bearer ${state.token}`,
-    },
+    headers: buildAuthorizedHeaders(),
     cache: "no-store",
   });
   if (!response.ok) {
@@ -2211,6 +2451,7 @@ function resetComposer() {
   elements.messageInput.value = "";
   elements.messageAttachmentsInput.value = "";
   state.sendAsVideoNote = false;
+  cancelVideoNoteRecording(true);
   discardRecordedVoice();
   clearReplyTarget();
   clearMentionSuggestions();
@@ -2224,24 +2465,28 @@ function renderComposerState() {
   const videoNoteSupportIssue = getVideoNoteRecordingSupportIssue();
   const voiceSupportIssue = getVoiceRecordingSupportIssue();
   const mobileViewport = isMobileViewport();
+  const videoNotePreviewActive = state.videoNotePreviewOpen || state.isRecordingVideoNote;
+  const hideRecordVideoNoteOnMobile = mobileViewport && canSendVideoNote && !videoNotePreviewActive;
   elements.messageInput.disabled = disabled;
   elements.messageAttachmentsInput.disabled = disabled;
   elements.sendAsVideoNoteButton.classList.toggle("hidden", !canSendVideoNote);
   elements.sendAsVideoNoteButton.disabled = disabled || !canSendVideoNote;
   elements.sendAsVideoNoteButton.classList.toggle("active", state.sendAsVideoNote && canSendVideoNote);
+  elements.sendAsVideoNoteButton.classList.toggle("mobile-inline-hidden", !canSendVideoNote);
   setToolButtonLabel(elements.sendAsVideoNoteButton, state.sendAsVideoNote ? "Кружок: вкл" : "Кружок");
   elements.recordVideoNoteButton.disabled = disabled || state.isRecordingVoice;
+  elements.recordVideoNoteButton.classList.toggle("active", videoNotePreviewActive);
   elements.recordVideoNoteButton.classList.toggle("recording", state.isRecordingVideoNote);
-  elements.recordVideoNoteButton.classList.toggle("locked", state.videoNoteRecordingLocked);
   elements.recordVideoNoteButton.classList.toggle("unsupported", Boolean(videoNoteSupportIssue));
+  elements.recordVideoNoteButton.classList.toggle("mobile-inline-hidden", hideRecordVideoNoteOnMobile);
   elements.recordVideoNoteButton.title = videoNoteSupportIssue || "";
   setToolButtonLabel(
     elements.recordVideoNoteButton,
     state.isRecordingVideoNote
-      ? (state.videoNoteRecordingLocked ? "Отправить кружок" : "Зажми для кружка")
-      : "Зажми для кружка"
+      ? "Идет запись"
+      : (state.videoNotePreviewOpen ? "Закрыть кружок" : "Кружок")
   );
-  elements.recordVoiceButton.disabled = disabled || state.isRecordingVideoNote;
+  elements.recordVoiceButton.disabled = disabled || state.isRecordingVideoNote || state.videoNotePreviewOpen;
   elements.clearRecordedVoiceButton.disabled =
     disabled || (!state.isRecordingVoice && !state.recordedVoiceFile);
   elements.sendMessageButton.disabled = disabled;
@@ -2250,12 +2495,16 @@ function renderComposerState() {
   elements.recordVoiceButton.classList.toggle("unsupported", Boolean(voiceSupportIssue));
   elements.recordVoiceButton.title = voiceSupportIssue || "";
   elements.clearRecordedVoiceButton.textContent = state.isRecordingVoice ? "Отмена" : "Удалить";
+  elements.toggleVideoNoteRecordingButton.disabled =
+    disabled || !state.videoNotePreviewOpen || state.videoNoteCameraSwitchInFlight;
+  elements.toggleVideoNoteRecordingButton.textContent = state.isRecordingVideoNote ? "Стоп" : "Запись";
+  elements.cancelVideoNotePreviewButton.disabled = disabled || !state.videoNotePreviewOpen;
   elements.sendMessageButton.textContent = state.messageSubmitInFlight
     ? (mobileViewport ? "…" : "Отправляем...")
     : (mobileViewport ? "➤" : "Отправить");
   elements.sendMessageButton.title = "Отправить";
   elements.switchVideoNoteCameraButton.disabled =
-    !state.isRecordingVideoNote || state.videoNoteCameraSwitchInFlight || !canSwitchVideoNoteCamera();
+    !state.videoNotePreviewOpen || state.videoNoteCameraSwitchInFlight || !canSwitchVideoNoteCamera();
   renderVideoNoteRecordingPreview();
   renderRecordedVoicePreview();
   renderReplyComposer();
@@ -2277,27 +2526,33 @@ function showToast(message, kind = "success", duration = 4200) {
 }
 
 function renderVideoNoteRecordingPreview() {
-  const visible = state.isRecordingVideoNote && Boolean(state.videoNoteRecorderStream);
+  const visible = state.videoNotePreviewOpen && Boolean(state.videoNoteRecorderStream);
   elements.videoNoteRecordingPreview.classList.toggle("hidden", !visible);
 
   if (!visible) {
     detachVideoNoteRecordingPreview();
-    elements.videoNoteRecordingStatus.textContent = "Кружок · запись";
-    elements.videoNoteRecordingMeta.textContent = "00:00 · отпусти кнопку, чтобы отправить";
+    elements.videoNoteRecordingStatus.textContent = "Кружок · камера";
+    elements.videoNoteRecordingMeta.textContent = "Выбери ракурс и нажми запись";
     elements.videoNoteRecordingTimer.textContent = "00:00";
+    elements.videoNoteRecordingBadge.classList.add("hidden");
     return;
   }
 
   attachVideoNoteRecordingPreview();
+  if (!state.isRecordingVideoNote) {
+    elements.videoNoteRecordingStatus.textContent = "Кружок · камера";
+    elements.videoNoteRecordingMeta.textContent = "Выбери ракурс, при необходимости переключи камеру и нажми запись";
+    elements.videoNoteRecordingTimer.textContent = "00:00";
+    elements.videoNoteRecordingBadge.classList.add("hidden");
+    return;
+  }
+
   const elapsedMs = Math.max(0, Date.now() - (state.videoNoteRecordingStartedAt || Date.now()));
   const elapsedLabel = formatRecordingDuration(elapsedMs);
-  elements.videoNoteRecordingStatus.textContent = state.videoNoteRecordingLocked
-    ? "Кружок · запись зафиксирована"
-    : "Кружок · запись";
-  elements.videoNoteRecordingMeta.textContent = state.videoNoteRecordingLocked
-    ? `${elapsedLabel} · нажми кнопку еще раз, чтобы отправить`
-    : `${elapsedLabel} · смахни вверх для фиксации`;
+  elements.videoNoteRecordingStatus.textContent = "Кружок · запись";
+  elements.videoNoteRecordingMeta.textContent = `${elapsedLabel} · нажми «Стоп», чтобы отправить`;
   elements.videoNoteRecordingTimer.textContent = elapsedLabel;
+  elements.videoNoteRecordingBadge.classList.remove("hidden");
 }
 
 function setToolButtonLabel(button, label) {
@@ -2313,30 +2568,12 @@ function setToolButtonLabel(button, label) {
 }
 
 function attachVideoNoteRecordingPreview() {
-  const preview = elements.videoNoteRecordingVideo;
-  if (!preview) {
-    return;
-  }
-
-  if (preview.srcObject !== state.videoNoteRecorderStream) {
-    preview.srcObject = state.videoNoteRecorderStream || null;
-  }
-
-  preview.muted = true;
-  preview.playsInline = true;
-  preview.play?.().catch(() => {});
+  startVideoNotePreviewLoop();
 }
 
 function detachVideoNoteRecordingPreview() {
-  const preview = elements.videoNoteRecordingVideo;
-  if (!preview) {
-    return;
-  }
-
-  preview.pause?.();
-  if (preview.srcObject) {
-    preview.srcObject = null;
-  }
+  stopVideoNotePreviewLoop();
+  clearVideoNotePreviewCanvas();
 }
 
 function startVideoNoteRecordingTicker() {
@@ -2355,6 +2592,103 @@ function stopVideoNoteRecordingTicker() {
     window.clearInterval(state.videoNoteRecordingTimerHandle);
     state.videoNoteRecordingTimerHandle = null;
   }
+}
+
+function startVideoNotePreviewLoop() {
+  if (state.videoNotePreviewRenderHandle || !state.videoNotePreviewOpen) {
+    return;
+  }
+
+  const renderFrame = () => {
+    state.videoNotePreviewRenderHandle = null;
+    renderVideoNotePreviewFrame();
+    if (state.videoNotePreviewOpen) {
+      state.videoNotePreviewRenderHandle = window.requestAnimationFrame(renderFrame);
+    }
+  };
+
+  state.videoNotePreviewRenderHandle = window.requestAnimationFrame(renderFrame);
+}
+
+function stopVideoNotePreviewLoop() {
+  if (state.videoNotePreviewRenderHandle) {
+    window.cancelAnimationFrame(state.videoNotePreviewRenderHandle);
+    state.videoNotePreviewRenderHandle = null;
+  }
+}
+
+function clearVideoNotePreviewCanvas() {
+  const canvas = elements.videoNoteRecordingCanvas;
+  const context = canvas?.getContext("2d");
+  if (!canvas || !context) {
+    return;
+  }
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function renderVideoNotePreviewFrame() {
+  drawVideoNoteCanvas(elements.videoNoteRecordingCanvas, {
+    mirror: state.videoNoteCameraFacingMode === "user",
+  });
+
+  if (state.isRecordingVideoNote && state.videoNoteCaptureCanvas) {
+    drawVideoNoteCanvas(state.videoNoteCaptureCanvas, { mirror: false, fixedSize: 640 });
+  }
+}
+
+function drawVideoNoteCanvas(canvas, options = {}) {
+  const sourceVideo = state.videoNoteSourceVideo;
+  if (!canvas || !sourceVideo || sourceVideo.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return;
+  }
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+
+  const renderSize = resolveVideoNoteCanvasSize(canvas, options.fixedSize);
+  if (canvas.width !== renderSize || canvas.height !== renderSize) {
+    canvas.width = renderSize;
+    canvas.height = renderSize;
+  }
+
+  const videoWidth = sourceVideo.videoWidth || renderSize;
+  const videoHeight = sourceVideo.videoHeight || renderSize;
+  const sourceSize = Math.max(1, Math.min(videoWidth, videoHeight));
+  const sourceX = Math.max(0, (videoWidth - sourceSize) / 2);
+  const sourceY = Math.max(0, (videoHeight - sourceSize) / 2);
+
+  context.save();
+  context.clearRect(0, 0, renderSize, renderSize);
+  if (options.mirror) {
+    context.translate(renderSize, 0);
+    context.scale(-1, 1);
+  }
+  context.drawImage(
+    sourceVideo,
+    sourceX,
+    sourceY,
+    sourceSize,
+    sourceSize,
+    0,
+    0,
+    renderSize,
+    renderSize
+  );
+  context.restore();
+}
+
+function resolveVideoNoteCanvasSize(canvas, fixedSize) {
+  if (fixedSize) {
+    return fixedSize;
+  }
+
+  const bounds = canvas.getBoundingClientRect();
+  const baseSize = Math.max(bounds.width || 0, bounds.height || 0, canvas.clientWidth || 0, 160);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  return Math.max(320, Math.round(baseSize * dpr));
 }
 
 function formatRecordingDuration(durationMs) {
@@ -2414,6 +2748,7 @@ function buildConversationsSignature(conversations) {
       [
         conversation.id,
         conversation.title,
+        conversation.avatarUrl || "",
         conversation.membershipRole,
         conversation.createdAt,
       ].join("|")
@@ -2518,7 +2853,91 @@ function normalizeVideoNoteSelectionState() {
   }
 }
 
-async function startVideoNoteRecording(pointerId) {
+async function startVideoNoteRecording() {
+  if (!state.videoNotePreviewOpen || !state.videoNoteRecorderStream) {
+    const opened = await openVideoNotePreview();
+    if (!opened) {
+      return false;
+    }
+  }
+
+  if (!state.selectedConversationId) {
+    showToast("Сначала выбери чат.", "error");
+    return false;
+  }
+
+  if (state.messageSubmitInFlight || state.isRecordingVoice) {
+    return false;
+  }
+
+  if (!browserSupportsVideoNoteRecording()) {
+    showToast(getVideoNoteRecordingSupportIssue() || "Этот браузер не поддерживает запись кружков.", "error");
+    return false;
+  }
+
+  let stream = state.videoNoteRecorderStream;
+  if (!stream || stream.getAudioTracks().length === 0) {
+    const previewStream = stream;
+    try {
+      stream = await getVideoNoteMediaStream({ includeAudio: true, facingMode: state.videoNoteCameraFacingMode });
+    } catch (error) {
+      showToast("Не удалось получить доступ к камере и микрофону.", "error");
+      return false;
+    }
+    try {
+      await setVideoNotePreviewStream(stream, { stopPrevious: true });
+    } catch (error) {
+      stopMediaStream(stream);
+      showToast("Не удалось подготовить камеру к записи.", "error");
+      return false;
+    }
+  }
+
+  const recordingCanvas = document.createElement("canvas");
+  state.videoNoteCaptureCanvas = recordingCanvas;
+  state.videoNoteCaptureStream = typeof recordingCanvas.captureStream === "function"
+    ? recordingCanvas.captureStream(24)
+    : null;
+  const recorderInputStream = new MediaStream();
+  state.videoNoteCaptureStream?.getVideoTracks().forEach((track) => recorderInputStream.addTrack(track));
+  state.videoNoteRecorderStream?.getAudioTracks().forEach((track) => recorderInputStream.addTrack(track));
+  const recorderTarget = state.videoNoteCaptureStream?.getVideoTracks().length
+    ? recorderInputStream
+    : stream;
+
+  const preferredFormat = selectPreferredVideoNoteRecordingFormat();
+  let recorder;
+  try {
+    recorder = preferredFormat
+      ? new MediaRecorder(recorderTarget, { mimeType: preferredFormat.mimeType })
+      : new MediaRecorder(recorderTarget);
+  } catch (error) {
+    state.videoNoteCaptureStream?.getTracks().forEach((track) => track.stop());
+    state.videoNoteCaptureCanvas = null;
+    state.videoNoteCaptureStream = null;
+    showToast("Не удалось запустить запись кружка.", "error");
+    return false;
+  }
+
+  state.videoNoteRecorder = recorder;
+  state.videoNoteRecorderStream = stream;
+  state.videoNoteRecorderChunks = [];
+  state.videoNoteRecorderMimeType = recorder.mimeType || preferredFormat?.mimeType || "video/webm";
+  state.videoNotePreviewOpen = true;
+  state.isRecordingVideoNote = true;
+  state.videoNoteTargetConversationId = state.selectedConversationId;
+  state.discardVideoNoteOnStop = false;
+  state.videoNoteRecordingStartedAt = Date.now();
+  recorder.addEventListener("dataavailable", handleVideoNoteRecordingChunk);
+  recorder.addEventListener("stop", handleVideoNoteRecordingStopped, { once: true });
+  recorder.start();
+  startVideoNoteRecordingTicker();
+  renderSelectedAttachments();
+  renderComposerState();
+  return true;
+}
+
+async function openVideoNotePreview() {
   if (!state.selectedConversationId) {
     showToast("Сначала выбери чат.", "error");
     return false;
@@ -2535,39 +2954,23 @@ async function startVideoNoteRecording(pointerId) {
 
   let stream;
   try {
-    stream = await getVideoNoteMediaStream({ includeAudio: true, facingMode: state.videoNoteCameraFacingMode });
+    stream = await getVideoNoteMediaStream({ includeAudio: false, facingMode: state.videoNoteCameraFacingMode });
   } catch (error) {
-    showToast("Не удалось получить доступ к камере.", "error");
+    showToast("Не удалось открыть камеру.", "error");
     return false;
   }
 
-  const preferredFormat = selectPreferredVideoNoteRecordingFormat();
-  let recorder;
+  cleanupVideoNoteRecorder();
   try {
-    recorder = preferredFormat
-      ? new MediaRecorder(stream, { mimeType: preferredFormat.mimeType })
-      : new MediaRecorder(stream);
+    await setVideoNotePreviewStream(stream);
   } catch (error) {
     stopMediaStream(stream);
-    showToast("Не удалось запустить запись кружка.", "error");
+    showToast("Не удалось подготовить предпросмотр камеры.", "error");
     return false;
   }
-
-  state.videoNoteRecorder = recorder;
-  state.videoNoteRecorderStream = stream;
-  state.videoNoteRecorderChunks = [];
-  state.videoNoteRecorderMimeType = recorder.mimeType || preferredFormat?.mimeType || "video/webm";
-  state.isRecordingVideoNote = true;
-  state.activeVideoNotePointerId = pointerId ?? null;
-  state.videoNotePointerStartY = null;
+  state.videoNotePreviewOpen = true;
   state.videoNoteTargetConversationId = state.selectedConversationId;
-  state.discardVideoNoteOnStop = false;
-  state.videoNoteRecordingStartedAt = Date.now();
-  state.videoNoteRecordingLocked = false;
-  recorder.addEventListener("dataavailable", handleVideoNoteRecordingChunk);
-  recorder.addEventListener("stop", handleVideoNoteRecordingStopped, { once: true });
-  recorder.start();
-  startVideoNoteRecordingTicker();
+  attachVideoNoteRecordingPreview();
   renderSelectedAttachments();
   renderComposerState();
   return true;
@@ -2637,6 +3040,12 @@ async function handleVideoNoteRecordingStopped() {
 function cleanupVideoNoteRecorder() {
   stopVideoNoteRecordingTicker();
   detachVideoNoteRecordingPreview();
+  if (state.videoNoteCaptureStream) {
+    stopMediaStream(state.videoNoteCaptureStream);
+  }
+  state.videoNoteCaptureCanvas = null;
+  state.videoNoteCaptureStream = null;
+  destroyVideoNoteSourceVideo();
   if (state.videoNoteRecorderStream) {
     stopMediaStream(state.videoNoteRecorderStream);
   }
@@ -2644,13 +3053,11 @@ function cleanupVideoNoteRecorder() {
   state.videoNoteRecorderStream = null;
   state.videoNoteRecorderChunks = [];
   state.videoNoteRecorderMimeType = "";
+  state.videoNotePreviewOpen = false;
   state.isRecordingVideoNote = false;
-  state.activeVideoNotePointerId = null;
-  state.videoNotePointerStartY = null;
   state.videoNoteTargetConversationId = null;
   state.discardVideoNoteOnStop = false;
   state.videoNoteRecordingStartedAt = null;
-  state.videoNoteRecordingLocked = false;
   state.videoNoteCameraSwitchInFlight = false;
 }
 
@@ -2715,8 +3122,9 @@ async function getVideoNoteMediaStream(options = {}) {
 function canSwitchVideoNoteCamera() {
   return Boolean(
     navigator.mediaDevices?.getUserMedia
-    && state.isRecordingVideoNote
+    && state.videoNotePreviewOpen
     && state.videoNoteRecorderStream
+    && !state.isRecordingVideoNote
   );
 }
 
@@ -2735,21 +3143,8 @@ async function switchVideoNoteCamera() {
       includeAudio: false,
       facingMode: nextFacingMode,
     });
-    const nextVideoTrack = nextVideoStream.getVideoTracks()[0];
-    if (!nextVideoTrack || !state.videoNoteRecorderStream) {
-      throw new Error("camera-switch-unavailable");
-    }
-
-    const currentStream = state.videoNoteRecorderStream;
-    currentStream.getVideoTracks().forEach((track) => {
-      currentStream.removeTrack(track);
-      track.stop();
-    });
-    currentStream.addTrack(nextVideoTrack);
+    await setVideoNotePreviewStream(nextVideoStream, { stopPrevious: true });
     state.videoNoteCameraFacingMode = nextFacingMode;
-
-    detachVideoNoteRecordingPreview();
-    attachVideoNoteRecordingPreview();
   } catch (error) {
     nextVideoStream?.getTracks().forEach((track) => track.stop());
     showToast("Не удалось переключить камеру.", "error");
@@ -2758,6 +3153,72 @@ async function switchVideoNoteCamera() {
     renderVideoNoteRecordingPreview();
     renderComposerState();
   }
+}
+
+async function setVideoNotePreviewStream(stream, options = {}) {
+  const previousStream = options.stopPrevious ? state.videoNoteRecorderStream : null;
+  destroyVideoNoteSourceVideo();
+  state.videoNoteRecorderStream = stream;
+  state.videoNoteSourceVideo = await createVideoNoteSourceVideo(stream);
+  if (previousStream && previousStream !== stream) {
+    stopMediaStream(previousStream);
+  }
+  attachVideoNoteRecordingPreview();
+}
+
+async function createVideoNoteSourceVideo(stream) {
+  const sourceVideo = document.createElement("video");
+  sourceVideo.autoplay = true;
+  sourceVideo.muted = true;
+  sourceVideo.playsInline = true;
+  sourceVideo.srcObject = stream;
+
+  await new Promise((resolve, reject) => {
+    if (sourceVideo.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      resolve();
+      return;
+    }
+
+    let settled = false;
+    const cleanup = () => {
+      sourceVideo.removeEventListener("loadedmetadata", handleReady);
+      sourceVideo.removeEventListener("loadeddata", handleReady);
+      sourceVideo.removeEventListener("error", handleError);
+    };
+    const finish = (callback) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const handleReady = () => finish(resolve);
+    const handleError = () => finish(() => reject(new Error("video-note-preview-unavailable")));
+    sourceVideo.addEventListener("loadedmetadata", handleReady, { once: true });
+    sourceVideo.addEventListener("loadeddata", handleReady, { once: true });
+    sourceVideo.addEventListener("error", handleError, { once: true });
+  });
+
+  try {
+    await sourceVideo.play();
+  } catch (error) {
+    // Best effort. The preview loop can still render when the browser resolves autoplay later.
+  }
+
+  return sourceVideo;
+}
+
+function destroyVideoNoteSourceVideo() {
+  if (!state.videoNoteSourceVideo) {
+    return;
+  }
+
+  state.videoNoteSourceVideo.pause?.();
+  if (state.videoNoteSourceVideo.srcObject) {
+    state.videoNoteSourceVideo.srcObject = null;
+  }
+  state.videoNoteSourceVideo = null;
 }
 
 function renderRecordedVoicePreview() {

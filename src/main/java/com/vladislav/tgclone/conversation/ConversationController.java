@@ -4,13 +4,20 @@ import com.vladislav.tgclone.bridge.MessageRelayService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import java.io.IOException;
+import java.util.Locale;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -43,13 +50,13 @@ public class ConversationController {
         @Valid @RequestBody CreateConversationRequest request
     ) {
         ConversationMember membership = conversationService.createConversation(authenticatedUser, request.title());
-        return ResponseEntity.status(HttpStatus.CREATED).body(ConversationResponse.from(membership));
+        return ResponseEntity.status(HttpStatus.CREATED).body(toConversationResponse(membership));
     }
 
     @GetMapping
     public List<ConversationResponse> listConversations(@AuthenticationPrincipal AuthenticatedUser authenticatedUser) {
         return conversationService.listMemberships(authenticatedUser).stream()
-            .map(ConversationResponse::from)
+            .map(this::toConversationResponse)
             .toList();
     }
 
@@ -58,7 +65,56 @@ public class ConversationController {
         @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
         @PathVariable Long conversationId
     ) {
-        return ConversationResponse.from(conversationService.requireMembership(authenticatedUser, conversationId));
+        return toConversationResponse(conversationService.requireMembership(authenticatedUser, conversationId));
+    }
+
+    @PatchMapping(path = "/{conversationId}/profile", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ConversationResponse updateConversationProfile(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+        @PathVariable Long conversationId,
+        @RequestParam String title,
+        @RequestParam(name = "avatar", required = false) MultipartFile avatar,
+        @RequestParam(name = "removeAvatar", defaultValue = "false") boolean removeAvatar
+    ) {
+        ConversationService.AvatarUpload avatarUpload = toConversationAvatarUpload(avatar);
+        ConversationMember membership = conversationService.updateConversationProfile(
+            authenticatedUser,
+            conversationId,
+            title,
+            avatarUpload,
+            removeAvatar
+        );
+        return toConversationResponse(membership);
+    }
+
+    @DeleteMapping("/{conversationId}")
+    public ResponseEntity<Void> deleteConversation(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+        @PathVariable Long conversationId
+    ) {
+        conversationService.deleteConversation(authenticatedUser, conversationId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{conversationId}/avatar")
+    public ResponseEntity<InputStreamResource> conversationAvatar(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+        @PathVariable Long conversationId
+    ) throws IOException {
+        ConversationService.ResolvedConversationAvatar resolvedConversationAvatar =
+            conversationService.resolveConversationAvatar(authenticatedUser, conversationId);
+        Conversation conversation = resolvedConversationAvatar.conversation();
+
+        return ResponseEntity.ok()
+            .cacheControl(CacheControl.noStore().mustRevalidate())
+            .contentType(resolveMediaType(conversation.getAvatarMimeType()))
+            .header(
+                HttpHeaders.CONTENT_DISPOSITION,
+                ContentDisposition.inline().filename(conversation.getAvatarOriginalFilename()).build().toString()
+            )
+            .header(HttpHeaders.PRAGMA, "no-cache")
+            .header(HttpHeaders.EXPIRES, "0")
+            .body(new InputStreamResource(conversationService.openAvatarStream(conversation)));
     }
 
     @GetMapping("/{conversationId}/messages")
@@ -146,6 +202,34 @@ public class ConversationController {
         return ConversationMemberResponse.from(member);
     }
 
+    private ConversationResponse toConversationResponse(ConversationMember membership) {
+        Conversation conversation = membership.getConversation();
+        return new ConversationResponse(
+            conversation.getId(),
+            conversation.getTenantKey(),
+            conversation.getTitle(),
+            conversationService.buildConversationAvatarUrl(conversation),
+            membership.getRole().name(),
+            conversation.getCreatedAt()
+        );
+    }
+
+    private ConversationService.AvatarUpload toConversationAvatarUpload(MultipartFile avatar) {
+        if (avatar == null || avatar.isEmpty()) {
+            return null;
+        }
+
+        try {
+            return new ConversationService.AvatarUpload(
+                avatar.getOriginalFilename(),
+                avatar.getContentType(),
+                avatar.getBytes()
+            );
+        } catch (IOException ex) {
+            throw new IllegalArgumentException("Не удалось прочитать аватар чата");
+        }
+    }
+
     private List<ConversationAttachmentDraft> toAttachmentDrafts(List<MultipartFile> files, boolean sendAsVideoNote) {
         List<ConversationAttachmentDraft> drafts = new ArrayList<>();
         if (files == null || files.isEmpty()) {
@@ -230,6 +314,28 @@ public class ConversationController {
 
         return ConversationAttachmentKind.DOCUMENT;
     }
+
+    private MediaType resolveMediaType(String rawMimeType) {
+        if (rawMimeType == null || rawMimeType.isBlank()) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+
+        String sanitized = rawMimeType.trim().toLowerCase(Locale.ROOT);
+        int parameterDelimiter = sanitized.indexOf(';');
+        if (parameterDelimiter >= 0) {
+            sanitized = sanitized.substring(0, parameterDelimiter).trim();
+        }
+
+        if (sanitized.isBlank()) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+
+        try {
+            return MediaType.parseMediaType(sanitized);
+        } catch (Exception ignored) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+    }
 }
 
 record CreateConversationRequest(
@@ -255,20 +361,10 @@ record ConversationResponse(
     Long id,
     String tenantKey,
     String title,
+    String avatarUrl,
     String membershipRole,
     Instant createdAt
 ) {
-
-    static ConversationResponse from(ConversationMember membership) {
-        Conversation conversation = membership.getConversation();
-        return new ConversationResponse(
-            conversation.getId(),
-            conversation.getTenantKey(),
-            conversation.getTitle(),
-            membership.getRole().name(),
-            conversation.getCreatedAt()
-        );
-    }
 }
 
 record ConversationMessageResponse(

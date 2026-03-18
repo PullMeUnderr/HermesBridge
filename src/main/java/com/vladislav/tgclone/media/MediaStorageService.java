@@ -28,6 +28,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 
 @Service
 public class MediaStorageService {
@@ -129,6 +130,37 @@ public class MediaStorageService {
 
     public Path resolve(String storageKey) {
         return materialize(storageKey, "attachment.bin").path();
+    }
+
+    public void delete(String storageKey) {
+        if (storageKey == null || storageKey.isBlank()) {
+            return;
+        }
+
+        if (mediaProperties.useObjectStorage()) {
+            try {
+                objectStorageClient.deleteObject(
+                    DeleteObjectRequest.builder()
+                        .bucket(mediaProperties.s3Bucket())
+                        .key(storageKey)
+                        .build()
+                );
+            } catch (NoSuchKeyException ignored) {
+                return;
+            } catch (S3Exception ex) {
+                if (ex.statusCode() == 404) {
+                    return;
+                }
+                throw new IllegalStateException("Failed to delete attachment from object storage", ex);
+            }
+            return;
+        }
+
+        try {
+            Files.deleteIfExists(resolveLocal(storageKey));
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to delete local attachment", ex);
+        }
     }
 
     private Path resolveLocal(String storageKey) {

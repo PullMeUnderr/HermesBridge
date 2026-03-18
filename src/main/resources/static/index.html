@@ -15,7 +15,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/app.css?v=20260317-mobile-telegram-1">
+    <link rel="stylesheet" href="/app.css?v=20260318-chat-actions-pass-2">
+    <style>
+        body{margin:0;background:#070707;color:#f6f6f6;font-family:"DM Sans","Segoe UI",sans-serif}
+        .page-shell{max-width:1560px;margin:0 auto;padding:20px}
+        .auth-layout{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(320px,460px);gap:20px;min-height:calc(100vh - 40px)}
+        .hero-panel,.auth-card{background:linear-gradient(180deg,rgba(30,215,96,.18),rgba(14,14,14,.98) 28%,rgba(12,12,12,.98));border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:24px}
+        .hero-panel h1{font-family:"Space Grotesk","DM Sans",sans-serif;font-size:clamp(2.3rem,4vw,4rem);line-height:.96;margin:0 0 12px;max-width:10ch}
+        .auth-card h2{font-family:"Space Grotesk","DM Sans",sans-serif;font-size:2rem;margin:8px 0 12px}
+        .muted{color:#a9a9a9}.stack{display:flex;flex-direction:column;gap:14px}
+        textarea,input{width:100%;box-sizing:border-box;padding:14px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.08);background:#242424;color:#f6f6f6}
+        .primary-button{display:inline-flex;align-items:center;justify-content:center;padding:12px 18px;border:0;border-radius:6px;background:linear-gradient(180deg,#2ae26c,#1ed760);color:#041108;font-weight:800}
+        @media (max-width:720px){.page-shell{padding:14px}.auth-layout{grid-template-columns:1fr;min-height:auto}.hero-panel,.hero-preview,.feature-grid{display:none}.auth-card{padding:18px}}
+    </style>
 </head>
 <body>
 <div class="page-shell">
@@ -144,7 +156,7 @@
                 <div id="drawerCreateView" class="drawer-view">
                     <form id="createChatForm" class="stack">
                         <input id="newChatTitle" type="text" placeholder="Название чата">
-                        <button type="submit" class="primary-button">Создать чат</button>
+                        <button id="createChatSubmitButton" type="submit" class="primary-button">Создать чат</button>
                     </form>
                 </div>
 
@@ -177,6 +189,27 @@
                         </label>
                         <p id="profileTelegramHint" class="composer-hint">Telegram ник появится здесь после загрузки профиля.</p>
                         <button id="saveProfileButton" type="submit" class="primary-button">Сохранить профиль</button>
+                    </form>
+                </div>
+
+                <div id="drawerConversationView" class="drawer-view hidden">
+                    <form id="conversationSettingsForm" class="stack">
+                        <div class="profile-avatar-panel conversation-avatar-panel">
+                            <div id="conversationAvatarPreview" class="profile-avatar-preview"></div>
+                            <div class="profile-avatar-tools">
+                                <label class="attachment-picker compact-picker" for="conversationAvatarInput">
+                                    <input id="conversationAvatarInput" type="file" accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.bmp,.heic,.heif,.svg">
+                                    <span>Сменить аватар</span>
+                                </label>
+                                <button id="clearConversationAvatarButton" type="button" class="ghost-button compact-button">Убрать аватар</button>
+                            </div>
+                        </div>
+                        <label class="stack gap-sm">
+                            <span>Название чата</span>
+                            <input id="conversationTitleInput" type="text" maxlength="200" placeholder="Название чата">
+                        </label>
+                        <button id="saveConversationSettingsButton" type="submit" class="secondary-button">Сохранить чат</button>
+                        <button id="deleteConversationButton" type="button" class="ghost-button danger-button">Удалить чат</button>
                     </form>
                 </div>
             </section>
@@ -293,7 +326,7 @@
                                                     <circle cx="12" cy="12" r="3.4" fill="currentColor"/>
                                                 </svg>
                                             </span>
-                                            <span class="tool-button-label">Зажми для кружка</span>
+                                            <span class="tool-button-label">Кружок</span>
                                         </button>
                                         <button id="recordVoiceButton" type="button" class="ghost-button voice-record-button">
                                             <span class="tool-button-icon" aria-hidden="true">
@@ -319,11 +352,11 @@
                                 <div id="videoNoteRecordingPreview" class="video-note-recording-preview hidden">
                                     <div class="recorded-voice-header">
                                         <div>
-                                            <div id="videoNoteRecordingStatus" class="section-caption">Кружок · запись</div>
-                                            <div id="videoNoteRecordingMeta" class="composer-hint">00:00 · отпусти кнопку, чтобы отправить</div>
+                                            <div id="videoNoteRecordingStatus" class="section-caption">Кружок · камера</div>
+                                            <div id="videoNoteRecordingMeta" class="composer-hint">Выбери ракурс и нажми запись</div>
                                         </div>
                                         <div class="video-note-recording-tools">
-                                            <button id="switchVideoNoteCameraButton" type="button" class="ghost-button compact-button video-note-camera-button mobile-only" aria-label="Переключить камеру">
+                                            <button id="switchVideoNoteCameraButton" type="button" class="ghost-button compact-button video-note-camera-button" aria-label="Переключить камеру">
                                                 <span class="tool-button-icon" aria-hidden="true">
                                                     <svg viewBox="0 0 24 24" focusable="false">
                                                         <path d="M8.4 7H15a3 3 0 0 1 3 3v1.2l1.2-1.2a1 1 0 1 1 1.4 1.4l-3 3a1 1 0 0 1-1.4 0l-3-3a1 1 0 1 1 1.4-1.4l1.4 1.4V10a1 1 0 0 0-1-1H8.4a1 1 0 1 1 0-2Zm7.2 10H9a3 3 0 0 1-3-3v-1.2l-1.2 1.2a1 1 0 1 1-1.4-1.4l3-3a1 1 0 0 1 1.4 0l3 3a1 1 0 1 1-1.4 1.4L8 12.6V14a1 1 0 0 0 1 1h6.6a1 1 0 1 1 0 2Z" fill="currentColor"/>
@@ -331,20 +364,22 @@
                                                 </span>
                                                 <span class="tool-button-label">Камера</span>
                                             </button>
-                                            <div class="video-note-recording-badge">
+                                            <button id="toggleVideoNoteRecordingButton" type="button" class="primary-button compact-button video-note-recording-action-button">Запись</button>
+                                            <button id="cancelVideoNotePreviewButton" type="button" class="ghost-button compact-button video-note-cancel-button">Отмена</button>
+                                            <div id="videoNoteRecordingBadge" class="video-note-recording-badge hidden">
                                                 <span class="video-note-recording-dot"></span>
                                                 <span id="videoNoteRecordingTimer">00:00</span>
                                             </div>
                                         </div>
                                     </div>
                                     <div class="video-note-recording-shell">
-                                        <video
-                                            id="videoNoteRecordingVideo"
+                                        <canvas
+                                            id="videoNoteRecordingCanvas"
                                             class="video-note-recording-video"
-                                            autoplay
-                                            muted
-                                            playsinline
-                                        ></video>
+                                            width="480"
+                                            height="480"
+                                            aria-hidden="true"
+                                        ></canvas>
                                     </div>
                                 </div>
                                 <div id="replyComposerPreview" class="reply-composer-preview hidden">
@@ -393,6 +428,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/app.js?v=20260317-mobile-telegram-1" defer></script>
+<script src="/app.js?v=20260318-chat-actions-pass-2" defer></script>
 </body>
 </html>

@@ -22,4 +22,6 @@ public interface DeliveryRecordRepository extends JpaRepository<DeliveryRecord, 
         String targetChatId,
         String targetMessageId
     );
+
+    void deleteAllByConversationMessage_Conversation_Id(Long conversationId);
 }

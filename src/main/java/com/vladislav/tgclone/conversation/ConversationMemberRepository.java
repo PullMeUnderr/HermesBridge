@@ -11,4 +11,11 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
     List<ConversationMember> findAllByConversation_IdOrderByJoinedAtAsc(Long conversationId);
 
     List<ConversationMember> findAllByUserAccount_IdOrderByConversation_CreatedAtDesc(Long userId);
+
+    List<ConversationMember> findTop5ByUserAccount_IdAndRoleOrderByConversation_CreatedAtDesc(
+        Long userId,
+        ConversationMemberRole role
+    );
+
+    void deleteAllByConversation_Id(Long conversationId);
 }

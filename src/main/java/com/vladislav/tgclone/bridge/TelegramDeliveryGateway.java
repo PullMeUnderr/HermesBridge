@@ -177,7 +177,19 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
     ) {
         if (shouldSendAsVideo(attachment)) {
             try {
-                return telegramBotClient.sendVideoNote(binding.getExternalChatId(), path, replyToMessageId);
+                String noteReplyToMessageId = replyToMessageId;
+                if (caption != null && !caption.isBlank()) {
+                    String contextMessageId = telegramBotClient.sendMessage(
+                        binding.getExternalChatId(),
+                        caption,
+                        null,
+                        replyToMessageId
+                    );
+                    if (contextMessageId != null && !contextMessageId.isBlank()) {
+                        noteReplyToMessageId = contextMessageId;
+                    }
+                }
+                return telegramBotClient.sendVideoNote(binding.getExternalChatId(), path, noteReplyToMessageId);
             } catch (Exception ignored) {
                 // Fall through to regular video or document.
             }

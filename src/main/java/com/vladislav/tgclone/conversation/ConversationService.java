@@ -501,9 +501,6 @@ public class ConversationService {
         if (conversation.getAvatarStorageKey() == null || conversation.getAvatarStorageKey().isBlank()) {
             throw new NotFoundException("Conversation avatar not found");
         }
-        if (!mediaStorageService.exists(conversation.getAvatarStorageKey())) {
-            throw new NotFoundException("Conversation avatar content not found");
-        }
         return new ResolvedConversationAvatar(conversation);
     }
 
@@ -634,11 +631,14 @@ public class ConversationService {
         ConversationMessage latestMessage = conversationMessageRepository
             .findTopByConversation_IdOrderByCreatedAtDescIdDesc(conversation.getId())
             .orElse(null);
-        long unreadCount = conversationMessageRepository.countUnreadForUser(
-            conversation.getId(),
-            currentUserId,
-            membership.getLastReadMessageCreatedAt()
-        );
+        Instant lastReadMessageCreatedAt = membership.getLastReadMessageCreatedAt();
+        long unreadCount = lastReadMessageCreatedAt == null
+            ? conversationMessageRepository.countUnreadForUser(conversation.getId(), currentUserId)
+            : conversationMessageRepository.countUnreadForUserAfter(
+                conversation.getId(),
+                currentUserId,
+                lastReadMessageCreatedAt
+            );
 
         return new ConversationSummary(
             membership,

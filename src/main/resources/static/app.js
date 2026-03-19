@@ -63,6 +63,7 @@ const state = {
   banners: [],
   nextBannerId: 1,
   previousConversationMap: new Map(),
+  forceScrollMessagesToBottom: false,
 };
 
 const elements = {
@@ -713,6 +714,7 @@ elements.messageForm.addEventListener("submit", async (event) => {
       });
     }
 
+    state.forceScrollMessagesToBottom = true;
     resetComposer();
     await loadMessages(state.selectedConversationId);
   } catch (error) {
@@ -921,6 +923,7 @@ function selectConversation(conversationId) {
   state.currentMembersSignature = "";
   state.loadingMessages = true;
   state.loadingMembers = true;
+  state.forceScrollMessagesToBottom = true;
   state.mobileMembersOpen = false;
   state.desktopMembersOpen = false;
   clearReplyTarget();
@@ -1300,7 +1303,7 @@ function renderConversationSettingsForm() {
 }
 
 function renderAvatarMarkup(label, avatarUrl, className, options = {}) {
-  const protectedSource = options.protectedSource ?? Boolean(avatarUrl);
+  const protectedSource = options.protectedSource ?? isProtectedMediaUrl(avatarUrl);
   const imageMarkup = avatarUrl
     ? `<img class="avatar-image ${protectedSource ? "hidden" : ""}" ${protectedSource
       ? `data-protected-src="${escapeHtml(avatarUrl)}"`
@@ -1492,18 +1495,7 @@ function renderMobileTabbar() {
   if (!elements.mobileTabbar) {
     return;
   }
-
-  const mobileViewport = isMobileViewport();
-  elements.mobileTabbar.classList.toggle("hidden", !mobileViewport || !state.me);
-  if (!mobileViewport || !state.me) {
-    return;
-  }
-
-  elements.mobileChatsTabButton.classList.toggle("active", state.mobileScreen === "sidebar");
-  elements.mobileCurrentChatTabButton.classList.toggle("active", state.mobileScreen === "conversation");
-  elements.mobileCurrentChatTabButton.disabled = !state.selectedConversationId;
-  elements.mobileCurrentChatTabButton.textContent = state.selectedConversationId ? "Диалог" : "Диалог";
-  elements.mobileProfileTabButton.classList.toggle("active", state.sidebarDrawerMode === "profile");
+  elements.mobileTabbar.classList.add("hidden");
 }
 
 function syncDesktopDrawers() {
@@ -1526,6 +1518,9 @@ function syncDesktopDrawers() {
 }
 
 function renderMessages() {
+  const wasNearBottom = isMessagesListNearBottom();
+  const preserveScrollTop = elements.messagesList.scrollTop;
+
   if (state.loadingMessages && state.currentMessages.length === 0) {
     elements.messagesList.innerHTML = Array.from({ length: 4 }, (_, index) => `
       <div class="message-row ${index % 2 === 0 ? "mine" : ""}">
@@ -1547,6 +1542,7 @@ function renderMessages() {
         <p class="muted">Напиши первым здесь или отправь сообщение из Telegram.</p>
       </div>
     `;
+    state.forceScrollMessagesToBottom = false;
     return;
   }
 
@@ -1554,6 +1550,7 @@ function renderMessages() {
     .map((message) => {
       const mine = message.authorUserId && state.me && message.authorUserId === state.me.id;
       const author = mine && state.me ? state.me.displayName : message.authorDisplayName || "Unknown";
+      const authorAvatarUrl = mine ? state.me?.avatarUrl : findMemberAvatarUrl(message.authorUserId);
       const transport = message.sourceTransport === "INTERNAL" ? "Hermes" : message.sourceTransport;
       const attachments = message.attachments || [];
       const hasAttachments = attachments.length > 0;
@@ -1570,7 +1567,7 @@ function renderMessages() {
         .join(" ");
       return `
         <div class="message-row ${mine ? "mine" : ""}" data-message-id="${message.id}">
-          ${renderAvatarMarkup(author, mine ? state.me.avatarUrl : null, "message-avatar")}
+          ${renderAvatarMarkup(author, authorAvatarUrl, "message-avatar")}
           <article class="${messageCardClassName}">
             <div class="message-topline">
               <div class="message-author">${escapeHtml(author)}</div>
@@ -1593,7 +1590,19 @@ function renderMessages() {
   bindReplyActions();
   hydrateProtectedImagePreviews(elements.messagesList).catch(() => {});
   hydrateAttachmentPreviews();
-  elements.messagesList.scrollTop = elements.messagesList.scrollHeight;
+  if (state.forceScrollMessagesToBottom || wasNearBottom) {
+    elements.messagesList.scrollTop = elements.messagesList.scrollHeight;
+  } else {
+    elements.messagesList.scrollTop = preserveScrollTop;
+  }
+  state.forceScrollMessagesToBottom = false;
+}
+
+function isMessagesListNearBottom() {
+  const threshold = 56;
+  const distanceToBottom =
+    elements.messagesList.scrollHeight - elements.messagesList.scrollTop - elements.messagesList.clientHeight;
+  return distanceToBottom <= threshold;
 }
 
 function renderMembers(members) {
@@ -1627,7 +1636,7 @@ function renderMembers(members) {
       const mine = state.me && member.userId === state.me.id;
       const displayName = mine && state.me ? state.me.displayName : member.displayName;
       const username = mine && state.me ? state.me.username : member.username;
-      const avatarUrl = mine && state.me ? state.me.avatarUrl : null;
+      const avatarUrl = mine && state.me ? state.me.avatarUrl : member.avatarUrl;
       const telegramHint = mine && state.me?.telegramUsername
         ? `<span class="user-telegram-hint">(@${escapeHtml(state.me.telegramUsername)})</span>`
         : "";
@@ -1651,6 +1660,15 @@ function renderMembers(members) {
     })
     .join("");
   hydrateProtectedImagePreviews(elements.membersList).catch(() => {});
+}
+
+function findMemberAvatarUrl(userId) {
+  if (!userId) {
+    return null;
+  }
+
+  const member = state.currentMembers.find((candidate) => candidate.userId === userId);
+  return member?.avatarUrl || null;
 }
 
 function renderPresenceLabel(subject) {
@@ -2463,6 +2481,21 @@ async function hydrateAttachmentPreview(mediaElement) {
     return;
   }
 
+  const directUrl = mediaElement.dataset.contentUrl;
+  if (directUrl && !isProtectedMediaUrl(directUrl)) {
+    if (mediaElement.src !== directUrl) {
+      mediaElement.src = directUrl;
+    }
+    if (typeof mediaElement.load === "function") {
+      mediaElement.load();
+    }
+    mediaElement.dataset.previewReady = "true";
+    mediaElement.removeAttribute("data-preview-error");
+    mediaElement.classList.remove("hidden");
+    mediaElement.closest(".video-note-shell")?.classList.remove("is-unavailable");
+    return;
+  }
+
   try {
     const objectUrl = await ensureProtectedObjectUrl(
       mediaElement.dataset.attachmentPreviewId,
@@ -2494,6 +2527,13 @@ async function hydrateProtectedImagePreviews(rootElement = document) {
   const images = Array.from(rootElement.querySelectorAll("[data-protected-src]"));
   await Promise.all(
     images.map(async (image) => {
+      if (!isProtectedMediaUrl(image.dataset.protectedSrc)) {
+        image.src = image.dataset.protectedSrc;
+        image.classList.remove("hidden");
+        image.parentElement?.querySelector(".avatar-fallback")?.classList.add("hidden");
+        return;
+      }
+
       try {
         const objectUrl = await ensureProtectedObjectUrl(
           image.dataset.protectedKey || image.dataset.protectedSrc,
@@ -2511,6 +2551,10 @@ async function hydrateProtectedImagePreviews(rootElement = document) {
 }
 
 async function ensureProtectedObjectUrl(resourceKey, contentUrl, options = {}) {
+  if (!isProtectedMediaUrl(contentUrl)) {
+    return contentUrl;
+  }
+
   const expectedMimeType = String(options.mimeType || "").trim().toLowerCase();
   const expectedFileName = String(options.fileName || "").trim();
   const cacheKey = `${resourceKey}:${contentUrl}:${expectedMimeType}:${expectedFileName}`;
@@ -2626,6 +2670,11 @@ function inferMimeTypeFromFilename(fileName) {
 }
 
 async function downloadAttachment(contentUrl, fileName) {
+  if (!isProtectedMediaUrl(contentUrl)) {
+    triggerAttachmentDownload(contentUrl, fileName);
+    return;
+  }
+
   const response = await fetch(contentUrl, {
     headers: buildAuthorizedHeaders(),
     cache: "no-store",
@@ -2643,6 +2692,19 @@ async function downloadAttachment(contentUrl, fileName) {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 500);
+}
+
+function triggerAttachmentDownload(url, fileName) {
+  const link = document.createElement("a");
+  link.href = url;
+  if (fileName) {
+    link.download = fileName;
+  }
+  link.target = "_blank";
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
 async function toggleVideoNotePlayback(shell, video) {
@@ -2823,9 +2885,11 @@ function renderComposerState() {
     disabled || !state.videoNotePreviewOpen || state.videoNoteCameraSwitchInFlight;
   elements.toggleVideoNoteRecordingButton.textContent = state.isRecordingVideoNote ? "Стоп" : "Запись";
   elements.cancelVideoNotePreviewButton.disabled = disabled || !state.videoNotePreviewOpen;
-  elements.sendMessageButton.textContent = state.messageSubmitInFlight
-    ? (mobileViewport ? "…" : "Отправляем...")
-    : (mobileViewport ? "➤" : "Отправить");
+  elements.sendMessageButton.classList.toggle("loading", state.messageSubmitInFlight);
+  const sendButtonLabel = elements.sendMessageButton.querySelector(".send-button-label");
+  if (sendButtonLabel) {
+    sendButtonLabel.textContent = state.messageSubmitInFlight ? "Отправляем..." : "Отправить";
+  }
   elements.sendMessageButton.title = "Отправить";
   elements.switchVideoNoteCameraButton.disabled =
     !state.videoNotePreviewOpen || state.videoNoteCameraSwitchInFlight || !canSwitchVideoNoteCamera();
@@ -3072,7 +3136,7 @@ function buildConversationsSignature(conversations) {
       [
         conversation.id,
         conversation.title,
-        conversation.avatarUrl || "",
+        normalizeMediaSignatureValue(conversation.avatarUrl),
         conversation.membershipRole,
         conversation.createdAt,
         conversation.lastMessagePreview || "",
@@ -3082,6 +3146,32 @@ function buildConversationsSignature(conversations) {
       ].join("|")
     )
     .join("::");
+}
+
+function normalizeMediaSignatureValue(value) {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const resolved = new URL(value, window.location.origin);
+    return `${resolved.origin}${resolved.pathname}`;
+  } catch (error) {
+    return String(value);
+  }
+}
+
+function isProtectedMediaUrl(url) {
+  if (!url) {
+    return false;
+  }
+
+  try {
+    const resolved = new URL(url, window.location.origin);
+    return resolved.origin === window.location.origin && resolved.pathname.startsWith("/api/");
+  } catch (error) {
+    return String(url).startsWith("/api/");
+  }
 }
 
 function buildMessagesSignature(messages) {
@@ -3099,7 +3189,7 @@ function buildMessagesSignature(messages) {
             attachment.fileName,
             attachment.mimeType,
             attachment.sizeBytes,
-            attachment.cacheKey || attachment.contentUrl,
+            attachment.cacheKey || normalizeMediaSignatureValue(attachment.contentUrl),
           ].join("|")
         )
         .join(",");
@@ -3115,7 +3205,13 @@ function buildMessagesSignature(messages) {
         message.replyTo?.authorDisplayName ?? "",
         message.replyTo?.body ?? "",
         (message.replyTo?.attachments || [])
-          .map((attachment) => [attachment.kind, attachment.fileName].join(":"))
+          .map((attachment) =>
+            [
+              attachment.kind,
+              attachment.fileName,
+              normalizeMediaSignatureValue(attachment.contentUrl),
+            ].join(":")
+          )
           .join(","),
         message.createdAt,
         attachmentSignature,
@@ -3411,6 +3507,7 @@ async function uploadRecordedVideoNote(conversationId, file) {
     });
 
     if (conversationId === state.selectedConversationId) {
+      state.forceScrollMessagesToBottom = true;
       clearReplyTarget();
       await loadMessages(conversationId);
     }

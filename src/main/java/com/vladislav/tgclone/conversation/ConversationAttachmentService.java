@@ -81,10 +81,6 @@ public class ConversationAttachmentService {
             throw new NotFoundException("Attachment %s not found".formatted(attachmentId));
         }
 
-        if (!mediaStorageService.exists(attachment.getStorageKey())) {
-            throw new NotFoundException("Attachment content %s not found".formatted(attachmentId));
-        }
-
         return new ResolvedConversationAttachment(
             attachment
         );
@@ -97,5 +93,16 @@ public class ConversationAttachmentService {
     public record ResolvedConversationAttachment(
         ConversationAttachment attachment
     ) {
+    }
+
+    public String buildContentUrl(ConversationAttachment attachment) {
+        if (attachment == null || attachment.getStorageKey() == null || attachment.getStorageKey().isBlank()) {
+            return null;
+        }
+
+        String version = attachment.getCreatedAt() == null
+            ? String.valueOf(attachment.getId())
+            : String.valueOf(attachment.getCreatedAt().toEpochMilli());
+        return "/api/attachments/" + attachment.getId() + "/content?v=" + version;
     }
 }

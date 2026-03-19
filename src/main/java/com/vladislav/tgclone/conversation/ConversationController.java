@@ -1,7 +1,9 @@
 package com.vladislav.tgclone.conversation;
 
 import com.vladislav.tgclone.account.TelegramIdentity;
+import com.vladislav.tgclone.account.UserAccountService;
 import com.vladislav.tgclone.bridge.MessageRelayService;
+import com.vladislav.tgclone.common.NotFoundException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -37,13 +39,19 @@ public class ConversationController {
 
     private final ConversationService conversationService;
     private final MessageRelayService messageRelayService;
+    private final ConversationAttachmentService conversationAttachmentService;
+    private final UserAccountService userAccountService;
 
     public ConversationController(
         ConversationService conversationService,
-        MessageRelayService messageRelayService
+        MessageRelayService messageRelayService,
+        ConversationAttachmentService conversationAttachmentService,
+        UserAccountService userAccountService
     ) {
         this.conversationService = conversationService;
         this.messageRelayService = messageRelayService;
+        this.conversationAttachmentService = conversationAttachmentService;
+        this.userAccountService = userAccountService;
     }
 
     @PostMapping
@@ -115,6 +123,12 @@ public class ConversationController {
         ConversationService.ResolvedConversationAvatar resolvedConversationAvatar =
             conversationService.resolveConversationAvatar(authenticatedUser, conversationId);
         Conversation conversation = resolvedConversationAvatar.conversation();
+        InputStreamResource body;
+        try {
+            body = new InputStreamResource(conversationService.openAvatarStream(conversation));
+        } catch (IllegalStateException ex) {
+            throw new NotFoundException("Conversation avatar not found");
+        }
 
         return ResponseEntity.ok()
             .cacheControl(CacheControl.noStore().mustRevalidate())
@@ -125,7 +139,7 @@ public class ConversationController {
             )
             .header(HttpHeaders.PRAGMA, "no-cache")
             .header(HttpHeaders.EXPIRES, "0")
-            .body(new InputStreamResource(conversationService.openAvatarStream(conversation)));
+            .body(body);
     }
 
     @GetMapping("/{conversationId}/messages")
@@ -134,7 +148,7 @@ public class ConversationController {
         @PathVariable Long conversationId
     ) {
         return conversationService.listMessages(authenticatedUser, conversationId).stream()
-            .map(ConversationMessageResponse::from)
+            .map(message -> ConversationMessageResponse.from(message, conversationAttachmentService))
             .toList();
     }
 
@@ -160,7 +174,9 @@ public class ConversationController {
             request.replyToMessageId()
         );
         messageRelayService.relayInternalMessage(message);
-        return ResponseEntity.status(HttpStatus.CREATED).body(ConversationMessageResponse.from(message));
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+            ConversationMessageResponse.from(message, conversationAttachmentService)
+        );
     }
 
     @PostMapping(
@@ -184,7 +200,9 @@ public class ConversationController {
             attachments
         );
         messageRelayService.relayInternalMessage(message);
-        return ResponseEntity.status(HttpStatus.CREATED).body(ConversationMessageResponse.from(message));
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+            ConversationMessageResponse.from(message, conversationAttachmentService)
+        );
     }
 
     @GetMapping("/{conversationId}/members")
@@ -203,7 +221,8 @@ public class ConversationController {
                 return ConversationMemberResponse.from(
                     member,
                     telegramIdentity,
-                    conversationService.isOnline(telegramIdentity)
+                    conversationService.isOnline(telegramIdentity),
+                    userAccountService
                 );
             })
             .toList();
@@ -245,7 +264,7 @@ public class ConversationController {
             userId,
             request.role()
         );
-        return ConversationMemberResponse.from(member, null, false);
+        return ConversationMemberResponse.from(member, null, false, userAccountService);
     }
 
     private ConversationResponse toConversationResponse(ConversationService.ConversationSummary summary) {
@@ -440,7 +459,10 @@ record ConversationMessageResponse(
     Instant createdAt
 ) {
 
-    static ConversationMessageResponse from(ConversationMessage message) {
+    static ConversationMessageResponse from(
+        ConversationMessage message,
+        ConversationAttachmentService conversationAttachmentService
+    ) {
         return new ConversationMessageResponse(
             message.getId(),
             message.getConversation().getId(),
@@ -451,7 +473,7 @@ record ConversationMessageResponse(
             message.getBody(),
             ConversationReplyResponse.from(message.getReplyToMessage()),
             message.getAttachments().stream()
-                .map(ConversationAttachmentResponse::from)
+                .map((attachment) -> ConversationAttachmentResponse.from(attachment, conversationAttachmentService))
                 .toList(),
             message.getCreatedAt()
         );
@@ -508,18 +530,20 @@ record ConversationAttachmentResponse(
     String cacheKey
 ) {
 
-    static ConversationAttachmentResponse from(ConversationAttachment attachment) {
-        String version = attachment.getCreatedAt() == null
-            ? String.valueOf(attachment.getId())
-            : String.valueOf(attachment.getCreatedAt().toEpochMilli());
+    static ConversationAttachmentResponse from(
+        ConversationAttachment attachment,
+        ConversationAttachmentService conversationAttachmentService
+    ) {
         return new ConversationAttachmentResponse(
             attachment.getId(),
             attachment.getKind().name(),
             attachment.getOriginalFilename(),
             attachment.getMimeType(),
             attachment.getSizeBytes(),
-            "/api/attachments/" + attachment.getId() + "/content?v=" + version,
-            version
+            conversationAttachmentService.buildContentUrl(attachment),
+            attachment.getCreatedAt() == null
+                ? String.valueOf(attachment.getId())
+                : String.valueOf(attachment.getCreatedAt().toEpochMilli())
         );
     }
 }
@@ -528,6 +552,7 @@ record ConversationMemberResponse(
     Long userId,
     String username,
     String displayName,
+    String avatarUrl,
     String role,
     Instant joinedAt,
     boolean telegramLinked,
@@ -539,12 +564,14 @@ record ConversationMemberResponse(
     static ConversationMemberResponse from(
         ConversationMember member,
         TelegramIdentity telegramIdentity,
-        boolean online
+        boolean online,
+        UserAccountService userAccountService
     ) {
         return new ConversationMemberResponse(
             member.getUserAccount().getId(),
             member.getUserAccount().getUsername(),
             member.getUserAccount().getDisplayName(),
+            userAccountService.buildAvatarUrl(member.getUserAccount()),
             member.getRole().name(),
             member.getJoinedAt(),
             telegramIdentity != null,

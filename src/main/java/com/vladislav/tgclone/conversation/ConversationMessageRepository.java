@@ -30,10 +30,21 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
         select count(message)
         from ConversationMessage message
         where message.conversation.id = :conversationId
-          and (:lastRead is null or message.createdAt > :lastRead)
           and (message.authorUser is null or message.authorUser.id <> :userId)
     """)
     long countUnreadForUser(
+        @Param("conversationId") Long conversationId,
+        @Param("userId") Long userId
+    );
+
+    @Query("""
+        select count(message)
+        from ConversationMessage message
+        where message.conversation.id = :conversationId
+          and message.createdAt > :lastRead
+          and (message.authorUser is null or message.authorUser.id <> :userId)
+    """)
+    long countUnreadForUserAfter(
         @Param("conversationId") Long conversationId,
         @Param("userId") Long userId,
         @Param("lastRead") Instant lastRead

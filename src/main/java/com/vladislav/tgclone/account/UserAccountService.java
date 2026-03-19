@@ -123,10 +123,6 @@ public class UserAccountService {
             throw new NotFoundException("Avatar not found");
         }
 
-        if (!mediaStorageService.exists(userAccount.getAvatarStorageKey())) {
-            throw new NotFoundException("Avatar content not found");
-        }
-
         return new ResolvedUserAvatar(userAccount);
     }
 
@@ -140,6 +136,13 @@ public class UserAccountService {
             ? String.valueOf(userAccount.getId())
             : String.valueOf(versionSource.toEpochMilli());
         return "/api/auth/me/avatar?v=" + version;
+    }
+
+    public String buildAvatarUrl(UserAccount userAccount) {
+        if (userAccount == null || userAccount.getId() == null) {
+            return null;
+        }
+        return buildOwnAvatarUrl(userAccount);
     }
 
     private void validateAvatarUpload(AvatarUpload avatarUpload) {

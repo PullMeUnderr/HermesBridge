@@ -1213,16 +1213,32 @@ button:disabled {
 
 .header-actions {
     display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+    gap: 6px;
+    flex-wrap: nowrap;
     align-items: center;
 }
 
 .conversation-header .secondary-button,
 .conversation-header .ghost-button {
-    min-height: 38px;
-    padding: 0 14px;
-    font-size: 0.94rem;
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 0.82rem;
+}
+
+.header-icon-button {
+    min-width: 34px;
+    gap: 0;
+    padding: 0;
+}
+
+.header-icon-button .tool-button-icon,
+.header-icon-button .tool-button-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.header-action-label {
+    display: none;
 }
 
 .chat-columns {
@@ -1660,10 +1676,11 @@ button:disabled {
 }
 
 .message-form {
-    padding: 14px 16px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    padding: 10px 14px 12px;
+    display: grid;
+    grid-template-columns: 38px 38px 38px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
     background:
         linear-gradient(180deg, rgba(17, 19, 25, 0.98), rgba(10, 12, 18, 0.98));
@@ -1671,18 +1688,11 @@ button:disabled {
 
 .message-composer-meta,
 .message-form-actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
+    display: contents;
 }
 
 .message-composer-tools {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
+    display: contents;
 }
 
 .message-composer-tools .ghost-button,
@@ -1726,6 +1736,25 @@ button:disabled {
     cursor: pointer;
 }
 
+.attachment-picker,
+#sendAsVideoNoteButton,
+#recordVideoNoteButton,
+#recordVoiceButton {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    min-height: 38px;
+    padding: 0;
+    justify-content: center;
+}
+
+.attachment-picker .tool-button-label,
+#sendAsVideoNoteButton .tool-button-label,
+#recordVideoNoteButton .tool-button-label,
+#recordVoiceButton .tool-button-label {
+    display: none;
+}
+
 .voice-record-button.recording {
     border-color: rgba(255, 125, 152, 0.38);
     background: rgba(255, 125, 152, 0.12);
@@ -1749,9 +1778,83 @@ button:disabled {
     cursor: pointer;
 }
 
+.attachment-picker {
+    grid-column: 1 / 2;
+    grid-row: 1;
+}
+
+#sendAsVideoNoteButton,
+#recordVideoNoteButton {
+    grid-column: 2 / 3;
+    grid-row: 1;
+}
+
+#recordVoiceButton {
+    grid-column: 3 / 4;
+    grid-row: 1;
+}
+
+.message-form textarea {
+    grid-column: 4 / 5;
+    grid-row: 1;
+    width: 100%;
+    min-width: 0;
+    min-height: 52px;
+    max-height: 108px;
+    padding: 14px 62px 14px 16px;
+    border-radius: 20px;
+    resize: none;
+    overflow-y: auto;
+}
+
+.message-form-actions .composer-hint {
+    display: none;
+}
+
+.message-form-actions .primary-button {
+    grid-column: 4 / 5;
+    grid-row: 1;
+    justify-self: end;
+    align-self: center;
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    min-height: 38px;
+    padding: 0;
+    margin-right: 7px;
+    border-radius: 999px;
+    box-shadow: none;
+}
+
+.send-message-icon-button .tool-button-icon,
+.send-message-icon-button .tool-button-icon svg {
+    width: 17px;
+    height: 17px;
+}
+
+.send-message-icon-button .send-button-label {
+    display: none;
+}
+
+.send-message-icon-button.loading .tool-button-icon {
+    opacity: .42;
+}
+
 .composer-hint {
     color: var(--muted);
     font-size: 0.8rem;
+}
+
+#attachmentSelectionLabel {
+    grid-column: 4 / 5;
+    grid-row: 2;
+    justify-self: end;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 0.66rem;
+    padding-right: 4px;
 }
 
 .reply-composer-preview {
@@ -1794,6 +1897,13 @@ button:disabled {
     background: rgba(18, 18, 18, 0.98);
     max-height: 220px;
     overflow: auto;
+}
+
+.reply-composer-preview,
+.recorded-voice-preview,
+.video-note-recording-preview,
+.mention-suggestions {
+    grid-column: 1 / -1;
 }
 
 .mention-suggestion {
@@ -2110,11 +2220,11 @@ button:disabled {
 }
 
 .mobile-tabbar {
+    display: none !important;
     position: fixed;
     left: 10px;
     right: 10px;
     bottom: max(10px, env(safe-area-inset-bottom));
-    display: none;
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
     padding: 8px;
@@ -2125,13 +2235,25 @@ button:disabled {
 }
 
 .mobile-tabbar-button {
-    min-height: 40px;
-    padding: 0 10px;
+    min-height: 48px;
+    min-width: 48px;
+    padding: 0;
     background: rgba(255,255,255,0.04);
     color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-size: 0.72rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mobile-tabbar-button-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mobile-tabbar-button-icon svg {
+    width: 22px;
+    height: 22px;
 }
 
 .mobile-tabbar-button.active {
@@ -2797,9 +2919,6 @@ button:disabled {
         padding: 10px 12px;
     }
 
-    .mobile-tabbar {
-        display: grid;
-    }
 }
 
 @media (min-width: 981px) {

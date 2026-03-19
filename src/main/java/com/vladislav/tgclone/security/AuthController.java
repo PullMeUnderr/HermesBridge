@@ -3,6 +3,7 @@ package com.vladislav.tgclone.security;
 import com.vladislav.tgclone.account.UserAccount;
 import com.vladislav.tgclone.account.TelegramIdentity;
 import com.vladislav.tgclone.account.UserAccountService;
+import com.vladislav.tgclone.common.NotFoundException;
 import java.io.IOException;
 import com.vladislav.tgclone.media.MediaStorageService;
 import org.springframework.core.io.InputStreamResource;
@@ -66,6 +67,12 @@ public class AuthController {
         throws IOException {
         UserAccountService.ResolvedUserAvatar resolvedUserAvatar = userAccountService.resolveOwnAvatar(authenticatedUser);
         UserAccount userAccount = resolvedUserAvatar.userAccount();
+        InputStreamResource body;
+        try {
+            body = new InputStreamResource(mediaStorageService.openStream(userAccount.getAvatarStorageKey()));
+        } catch (IllegalStateException ex) {
+            throw new NotFoundException("Avatar not found");
+        }
 
         return ResponseEntity.ok()
             .cacheControl(CacheControl.noStore().mustRevalidate())
@@ -76,7 +83,7 @@ public class AuthController {
             )
             .header(HttpHeaders.PRAGMA, "no-cache")
             .header(HttpHeaders.EXPIRES, "0")
-            .body(new InputStreamResource(mediaStorageService.openStream(userAccount.getAvatarStorageKey())));
+            .body(body);
     }
 
     private AuthenticatedUserResponse toResponse(UserAccount userAccount, TelegramIdentity telegramIdentity) {

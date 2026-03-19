@@ -345,4 +345,90 @@ class ConversationServiceTest {
         assertTrue(issuedInvite.inviteCode().startsWith("join_"));
         assertEquals(7L, issuedInvite.invite().getCreatedByUser().getId());
     }
+
+    @Test
+    void listConversationSummariesCountsUnreadWithoutLastReadTimestamp() {
+        UserAccount owner = new UserAccount("main", "alice", "Alice", true, Instant.EPOCH);
+        ReflectionTestUtils.setField(owner, "id", 7L);
+        AuthenticatedUser authenticatedUser = AuthenticatedUser.from(owner);
+
+        Conversation conversation = new Conversation("main", "Main chat", Instant.EPOCH);
+        ReflectionTestUtils.setField(conversation, "id", 15L);
+
+        ConversationMember membership = new ConversationMember(
+            conversation,
+            owner,
+            null,
+            ConversationMemberRole.OWNER,
+            Instant.EPOCH
+        );
+
+        ConversationMessage latestMessage = new ConversationMessage(
+            conversation,
+            com.vladislav.tgclone.bridge.BridgeTransport.INTERNAL,
+            "15",
+            null,
+            owner,
+            "7",
+            "Alice",
+            "Последнее сообщение",
+            Instant.parse("2026-03-18T10:00:00Z")
+        );
+
+        when(conversationMemberRepository.findAllByUserAccount_IdOrderByConversation_CreatedAtDesc(7L))
+            .thenReturn(List.of(membership));
+        when(conversationMessageRepository.findTopByConversation_IdOrderByCreatedAtDescIdDesc(15L))
+            .thenReturn(Optional.of(latestMessage));
+        when(conversationMessageRepository.countUnreadForUser(15L, 7L)).thenReturn(4L);
+
+        List<ConversationService.ConversationSummary> summaries = conversationService.listConversationSummaries(authenticatedUser);
+
+        assertEquals(1, summaries.size());
+        assertEquals(4L, summaries.get(0).unreadCount());
+        verify(conversationMessageRepository, never()).countUnreadForUserAfter(any(), any(), any());
+    }
+
+    @Test
+    void listConversationSummariesCountsUnreadAfterLastReadTimestamp() {
+        UserAccount owner = new UserAccount("main", "alice", "Alice", true, Instant.EPOCH);
+        ReflectionTestUtils.setField(owner, "id", 7L);
+        AuthenticatedUser authenticatedUser = AuthenticatedUser.from(owner);
+
+        Conversation conversation = new Conversation("main", "Main chat", Instant.EPOCH);
+        ReflectionTestUtils.setField(conversation, "id", 15L);
+
+        ConversationMember membership = new ConversationMember(
+            conversation,
+            owner,
+            null,
+            ConversationMemberRole.OWNER,
+            Instant.EPOCH
+        );
+        membership.markReadUpTo(Instant.parse("2026-03-18T09:00:00Z"));
+
+        ConversationMessage latestMessage = new ConversationMessage(
+            conversation,
+            com.vladislav.tgclone.bridge.BridgeTransport.INTERNAL,
+            "15",
+            null,
+            owner,
+            "7",
+            "Alice",
+            "Последнее сообщение",
+            Instant.parse("2026-03-18T10:00:00Z")
+        );
+
+        when(conversationMemberRepository.findAllByUserAccount_IdOrderByConversation_CreatedAtDesc(7L))
+            .thenReturn(List.of(membership));
+        when(conversationMessageRepository.findTopByConversation_IdOrderByCreatedAtDescIdDesc(15L))
+            .thenReturn(Optional.of(latestMessage));
+        when(conversationMessageRepository.countUnreadForUserAfter(15L, 7L, Instant.parse("2026-03-18T09:00:00Z")))
+            .thenReturn(2L);
+
+        List<ConversationService.ConversationSummary> summaries = conversationService.listConversationSummaries(authenticatedUser);
+
+        assertEquals(1, summaries.size());
+        assertEquals(2L, summaries.get(0).unreadCount());
+        verify(conversationMessageRepository, never()).countUnreadForUser(15L, 7L);
+    }
 }

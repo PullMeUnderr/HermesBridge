@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -19,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -29,6 +31,8 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 @Service
 public class MediaStorageService {
@@ -36,15 +40,19 @@ public class MediaStorageService {
     private static final Logger log = LoggerFactory.getLogger(MediaStorageService.class);
     private static final DateTimeFormatter PARTITION_FORMAT = DateTimeFormatter.ofPattern("yyyy/MM/dd")
         .withZone(ZoneOffset.UTC);
+    private static final Duration OBJECT_STORAGE_API_CALL_TIMEOUT = Duration.ofSeconds(12);
+    private static final Duration OBJECT_STORAGE_API_ATTEMPT_TIMEOUT = Duration.ofSeconds(8);
 
     private final MediaProperties mediaProperties;
     private final Clock clock;
     private final S3Client objectStorageClient;
+    private final S3Presigner objectStoragePresigner;
 
     public MediaStorageService(MediaProperties mediaProperties, Clock clock) {
         this.mediaProperties = mediaProperties;
         this.clock = clock;
         this.objectStorageClient = mediaProperties.useObjectStorage() ? buildObjectStorageClient(mediaProperties) : null;
+        this.objectStoragePresigner = mediaProperties.useObjectStorage() ? buildObjectStoragePresigner(mediaProperties) : null;
     }
 
     public StoredMediaFile store(String originalFilename, String mimeType, byte[] content) {
@@ -65,15 +73,18 @@ public class MediaStorageService {
 
         Path target = null;
         if (mediaProperties.useObjectStorage()) {
-            storeInObjectStorage(storageKey, resolvedMimeType, content);
-        } else {
-            target = resolveLocal(storageKey);
             try {
-                Files.createDirectories(target.getParent());
-                Files.write(target, content);
-            } catch (IOException ex) {
-                throw new IllegalStateException("Failed to store attachment", ex);
+                storeInObjectStorage(storageKey, resolvedMimeType, content);
+            } catch (IllegalStateException ex) {
+                log.warn(
+                    "Falling back to local media storage for key {} after object storage write failed: {}",
+                    storageKey,
+                    ex.getMessage()
+                );
+                target = storeLocally(storageKey, content);
             }
+        } else {
+            target = storeLocally(storageKey, content);
         }
 
         return new StoredMediaFile(storageKey, target, safeFilename, resolvedMimeType, content.length);
@@ -81,7 +92,13 @@ public class MediaStorageService {
 
     public InputStream openStream(String storageKey) {
         if (mediaProperties.useObjectStorage()) {
-            return openObjectStorageStream(storageKey);
+            try {
+                return openObjectStorageStream(storageKey);
+            } catch (IllegalStateException ex) {
+                if (!localFileExists(storageKey)) {
+                    throw ex;
+                }
+            }
         }
 
         try {
@@ -93,20 +110,10 @@ public class MediaStorageService {
 
     public boolean exists(String storageKey) {
         if (mediaProperties.useObjectStorage()) {
-            try {
-                objectStorageClient.headObject(HeadObjectRequest.builder()
-                    .bucket(mediaProperties.s3Bucket())
-                    .key(storageKey)
-                    .build());
+            if (objectExistsInObjectStorage(storageKey)) {
                 return true;
-            } catch (NoSuchKeyException ex) {
-                return false;
-            } catch (S3Exception ex) {
-                if (ex.statusCode() == 404) {
-                    return false;
-                }
-                throw new IllegalStateException("Failed to check media object in object storage", ex);
             }
+            return localFileExists(storageKey);
         }
 
         return Files.exists(resolveLocal(storageKey));
@@ -146,20 +153,80 @@ public class MediaStorageService {
                         .build()
                 );
             } catch (NoSuchKeyException ignored) {
-                return;
+                // The file may have been stored locally as a fallback.
             } catch (S3Exception ex) {
-                if (ex.statusCode() == 404) {
-                    return;
+                if (ex.statusCode() != 404) {
+                    log.warn("Failed to delete attachment {} from object storage: {}", storageKey, ex.getMessage());
                 }
-                throw new IllegalStateException("Failed to delete attachment from object storage", ex);
             }
-            return;
         }
 
         try {
             Files.deleteIfExists(resolveLocal(storageKey));
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to delete local attachment", ex);
+        }
+    }
+
+    public String buildReadUrl(String storageKey, String preferredFilename, boolean attachmentDisposition) {
+        if (storageKey == null || storageKey.isBlank()) {
+            return null;
+        }
+
+        if (!mediaProperties.useObjectStorage()) {
+            return null;
+        }
+        if (!objectExistsInObjectStorage(storageKey)) {
+            return null;
+        }
+
+        String safeFilename = sanitizeFilename(preferredFilename);
+        Duration ttl = Duration.ofSeconds(Math.max(60, mediaProperties.s3SignedUrlTtlSeconds()));
+        GetObjectRequest.Builder getObjectRequestBuilder = GetObjectRequest.builder()
+            .bucket(mediaProperties.s3Bucket())
+            .key(storageKey);
+
+        if (!safeFilename.isBlank()) {
+            String dispositionType = attachmentDisposition ? "attachment" : "inline";
+            getObjectRequestBuilder.responseContentDisposition(
+                "%s; filename=\"%s\"".formatted(dispositionType, safeFilename)
+            );
+        }
+
+        return objectStoragePresigner.presignGetObject(
+            GetObjectPresignRequest.builder()
+                .signatureDuration(ttl)
+                .getObjectRequest(getObjectRequestBuilder.build())
+                .build()
+        ).url().toString();
+    }
+
+    public boolean usesObjectStorage() {
+        return mediaProperties.useObjectStorage();
+    }
+
+    private boolean objectExistsInObjectStorage(String storageKey) {
+        try {
+            objectStorageClient.headObject(HeadObjectRequest.builder()
+                .bucket(mediaProperties.s3Bucket())
+                .key(storageKey)
+                .build());
+            return true;
+        } catch (NoSuchKeyException ex) {
+            return false;
+        } catch (S3Exception ex) {
+            if (ex.statusCode() == 404) {
+                return false;
+            }
+            throw new IllegalStateException("Failed to check media object in object storage", ex);
+        }
+    }
+
+    private boolean localFileExists(String storageKey) {
+        try {
+            return Files.exists(resolveLocal(storageKey));
+        } catch (IllegalArgumentException ex) {
+            return false;
         }
     }
 
@@ -174,6 +241,17 @@ public class MediaStorageService {
             throw new IllegalArgumentException("Invalid storage key");
         }
         return resolved;
+    }
+
+    private Path storeLocally(String storageKey, byte[] content) {
+        Path target = resolveLocal(storageKey);
+        try {
+            Files.createDirectories(target.getParent());
+            Files.write(target, content);
+            return target;
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to store attachment", ex);
+        }
     }
 
     private void storeInObjectStorage(String storageKey, String mimeType, byte[] content) {
@@ -210,21 +288,47 @@ public class MediaStorageService {
     }
 
     private S3Client buildObjectStorageClient(MediaProperties properties) {
+        StaticCredentialsProvider credentialsProvider = buildCredentialsProvider(properties);
+        S3Configuration configuration = S3Configuration.builder().pathStyleAccessEnabled(true).build();
+        ClientOverrideConfiguration overrideConfiguration = buildObjectStorageOverrideConfiguration();
         requireObjectStorageProperty(properties.s3Bucket(), "app.media.s3-bucket");
-        requireObjectStorageProperty(properties.s3AccessKeyId(), "app.media.s3-access-key-id");
-        requireObjectStorageProperty(properties.s3SecretAccessKey(), "app.media.s3-secret-access-key");
         String endpoint = requireObjectStorageProperty(properties.resolvedS3Endpoint(), "app.media.s3-endpoint");
 
         return S3Client.builder()
             .endpointOverride(URI.create(endpoint))
             .region(Region.of(properties.resolvedS3Region()))
-            .credentialsProvider(
-                StaticCredentialsProvider.create(
-                    AwsBasicCredentials.create(properties.s3AccessKeyId().trim(), properties.s3SecretAccessKey().trim())
-                )
-            )
-            .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
+            .credentialsProvider(credentialsProvider)
+            .overrideConfiguration(overrideConfiguration)
+            .serviceConfiguration(configuration)
             .build();
+    }
+
+    private S3Presigner buildObjectStoragePresigner(MediaProperties properties) {
+        StaticCredentialsProvider credentialsProvider = buildCredentialsProvider(properties);
+        S3Configuration configuration = S3Configuration.builder().pathStyleAccessEnabled(true).build();
+        String endpoint = requireObjectStorageProperty(properties.resolvedS3Endpoint(), "app.media.s3-endpoint");
+
+        return S3Presigner.builder()
+            .endpointOverride(URI.create(endpoint))
+            .region(Region.of(properties.resolvedS3Region()))
+            .credentialsProvider(credentialsProvider)
+            .serviceConfiguration(configuration)
+            .build();
+    }
+
+    private ClientOverrideConfiguration buildObjectStorageOverrideConfiguration() {
+        return ClientOverrideConfiguration.builder()
+            .apiCallTimeout(OBJECT_STORAGE_API_CALL_TIMEOUT)
+            .apiCallAttemptTimeout(OBJECT_STORAGE_API_ATTEMPT_TIMEOUT)
+            .build();
+    }
+
+    private StaticCredentialsProvider buildCredentialsProvider(MediaProperties properties) {
+        requireObjectStorageProperty(properties.s3AccessKeyId(), "app.media.s3-access-key-id");
+        requireObjectStorageProperty(properties.s3SecretAccessKey(), "app.media.s3-secret-access-key");
+        return StaticCredentialsProvider.create(
+            AwsBasicCredentials.create(properties.s3AccessKeyId().trim(), properties.s3SecretAccessKey().trim())
+        );
     }
 
     private String requireObjectStorageProperty(String value, String propertyName) {

@@ -19,7 +19,7 @@ class MediaStorageServiceTest {
     @Test
     void storeGuessesSpecificMimeTypeWhenUploadProvidesOctetStream() throws Exception {
         MediaStorageService mediaStorageService = new MediaStorageService(
-            new MediaProperties(tempDir.toString(), 1024 * 1024, "local", null, null, null, null, null),
+            new MediaProperties(tempDir.toString(), 1024 * 1024, "local", null, null, null, null, null, 900),
             Clock.fixed(Instant.parse("2026-03-17T01:00:00Z"), ZoneOffset.UTC)
         );
 
@@ -36,7 +36,7 @@ class MediaStorageServiceTest {
     @Test
     void storeStripsMimeTypeParametersFromBrowserRecordedVideo() throws Exception {
         MediaStorageService mediaStorageService = new MediaStorageService(
-            new MediaProperties(tempDir.toString(), 1024 * 1024, "local", null, null, null, null, null),
+            new MediaProperties(tempDir.toString(), 1024 * 1024, "local", null, null, null, null, null, 900),
             Clock.fixed(Instant.parse("2026-03-17T01:05:00Z"), ZoneOffset.UTC)
         );
 

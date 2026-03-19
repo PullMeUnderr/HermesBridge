@@ -1,6 +1,7 @@
 package com.vladislav.tgclone.conversation;
 
 import com.vladislav.tgclone.security.AuthenticatedUser;
+import com.vladislav.tgclone.common.NotFoundException;
 import java.io.IOException;
 import com.vladislav.tgclone.media.MediaStorageService;
 import org.springframework.core.io.InputStreamResource;
@@ -40,6 +41,12 @@ public class ConversationAttachmentController {
 
         ConversationAttachment attachment = resolvedAttachment.attachment();
         MediaType mediaType = resolveMediaType(attachment.getMimeType());
+        InputStreamResource body;
+        try {
+            body = new InputStreamResource(mediaStorageService.openStream(attachment.getStorageKey()));
+        } catch (IllegalStateException ex) {
+            throw new NotFoundException("Attachment content %s not found".formatted(attachmentId));
+        }
 
         return ResponseEntity.ok()
             .cacheControl(CacheControl.noStore().mustRevalidate())
@@ -51,7 +58,7 @@ public class ConversationAttachmentController {
             )
             .header(HttpHeaders.PRAGMA, "no-cache")
             .header(HttpHeaders.EXPIRES, "0")
-            .body(new InputStreamResource(mediaStorageService.openStream(attachment.getStorageKey())));
+            .body(body);
     }
 
     private MediaType resolveMediaType(String rawMimeType) {

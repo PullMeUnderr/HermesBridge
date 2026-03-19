@@ -2,13 +2,12 @@ package com.vladislav.tgclone.conversation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.vladislav.tgclone.bridge.MessageRelayService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class ConversationControllerTest {
 
-    private final ConversationController conversationController = new ConversationController(null, null);
+    private final ConversationController conversationController = new ConversationController(null, null, null, null);
 
     @Test
     void detectAttachmentKindFallsBackToVideoExtension() {

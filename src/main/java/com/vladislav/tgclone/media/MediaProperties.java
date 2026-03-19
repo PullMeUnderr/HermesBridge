@@ -11,7 +11,8 @@ public record MediaProperties(
     String s3Bucket,
     String s3AccessKeyId,
     String s3SecretAccessKey,
-    String s3Region
+    String s3Region,
+    long s3SignedUrlTtlSeconds
 ) {
 
     public boolean useObjectStorage() {

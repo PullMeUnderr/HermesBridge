@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/app.css?v=20260318-product-shell-1">
+    <link rel="stylesheet" href="/app.css?v=20260318-mobile-nav-remove-1">
     <style>
         body{margin:0;background:#07090e;color:#eef2fb;font-family:"IBM Plex Sans Condensed","Segoe UI",sans-serif}
         .page-shell{max-width:1560px;margin:0 auto;padding:20px}
@@ -290,9 +290,30 @@
                             </div>
                         </div>
                         <div class="header-actions">
-                            <button id="toggleMembersButton" class="ghost-button compact-button" type="button">Состав</button>
-                            <button id="createInviteButton" class="secondary-button" type="button">Создать инвайт</button>
-                            <button id="refreshMessagesButton" class="ghost-button" type="button">Обновить</button>
+                            <button id="toggleMembersButton" class="ghost-button compact-button header-icon-button" type="button" aria-label="Состав" title="Состав">
+                                <span class="tool-button-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" focusable="false">
+                                        <path d="M16 11a3 3 0 1 0-2.999-3A3 3 0 0 0 16 11Zm-8 0A3 3 0 1 0 5 8a3 3 0 0 0 3 3Zm8 2c-2.2 0-6 1.1-6 3.3V18h12v-1.7C22 14.1 18.2 13 16 13Zm-8 0c-.29 0-.62.02-.97.05C5.37 13.21 2 14.04 2 16.3V18h6v-1.7c0-1.22.64-2.3 1.72-3.12A7.73 7.73 0 0 0 8 13Z" fill="currentColor"/>
+                                    </svg>
+                                </span>
+                                <span class="header-action-label">Состав</span>
+                            </button>
+                            <button id="createInviteButton" class="secondary-button header-icon-button" type="button" aria-label="Создать инвайт" title="Создать инвайт">
+                                <span class="tool-button-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" focusable="false">
+                                        <path d="M12 5a1 1 0 0 1 1 1v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5H6a1 1 0 1 1 0-2h5V6a1 1 0 0 1 1-1Z" fill="currentColor"/>
+                                    </svg>
+                                </span>
+                                <span class="header-action-label">Инвайт</span>
+                            </button>
+                            <button id="refreshMessagesButton" class="ghost-button header-icon-button" type="button" aria-label="Обновить" title="Обновить">
+                                <span class="tool-button-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" focusable="false">
+                                        <path d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7a5 5 0 1 1-4.9 6.1 1 1 0 0 0-1.95.45A7 7 0 1 0 17.65 6.35Z" fill="currentColor"/>
+                                    </svg>
+                                </span>
+                                <span class="header-action-label">Обновить</span>
+                            </button>
                         </div>
                     </header>
 
@@ -394,7 +415,14 @@
                                 <div id="mentionSuggestions" class="mention-suggestions hidden"></div>
                                 <div class="message-form-actions">
                                     <span class="composer-hint">Enter отправляет, Shift+Enter переносит строку</span>
-                                    <button id="sendMessageButton" type="submit" class="primary-button">Отправить</button>
+                                    <button id="sendMessageButton" type="submit" class="primary-button send-message-icon-button" aria-label="Отправить" title="Отправить">
+                                        <span class="tool-button-icon" aria-hidden="true">
+                                            <svg viewBox="0 0 24 24" focusable="false">
+                                                <path d="M3.4 11.3 19.8 4.4a1 1 0 0 1 1.34 1.22l-4.3 13.77a1 1 0 0 1-1.75.3l-3.24-4.12-3.86 3.47a1 1 0 0 1-1.67-.82l.48-5.49-3.76-1.47a1 1 0 0 1-.05-1.86Z" fill="currentColor"/>
+                                            </svg>
+                                        </span>
+                                        <span class="send-button-label">Отправить</span>
+                                    </button>
                                 </div>
                             </form>
                         </div>
@@ -429,12 +457,32 @@
 </div>
 
 <nav id="mobileTabbar" class="mobile-tabbar hidden" aria-label="Навигация Hermes">
-    <button id="mobileChatsTabButton" class="mobile-tabbar-button active" type="button">Чаты</button>
-    <button id="mobileCurrentChatTabButton" class="mobile-tabbar-button" type="button">Диалог</button>
-    <button id="mobileProfileTabButton" class="mobile-tabbar-button" type="button">Профиль</button>
+    <button id="mobileChatsTabButton" class="mobile-tabbar-button active" type="button" aria-label="Чаты" title="Чаты">
+        <span class="mobile-tabbar-button-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6A2.5 2.5 0 0 1 16.5 15H10l-3.8 3.1A.8.8 0 0 1 5 17.5V15.9A2.5 2.5 0 0 1 3 13.5v-7Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            </svg>
+        </span>
+    </button>
+    <button id="mobileCurrentChatTabButton" class="mobile-tabbar-button" type="button" aria-label="Диалог" title="Диалог">
+        <span class="mobile-tabbar-button-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h10a2.5 2.5 0 0 1 2.5 2.5v7A2.5 2.5 0 0 1 17 16H9.6l-4.1 3.3a.8.8 0 0 1-1.3-.63V6.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                <path d="M8 8.5h8M8 12h5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+        </span>
+    </button>
+    <button id="mobileProfileTabButton" class="mobile-tabbar-button" type="button" aria-label="Профиль" title="Профиль">
+        <span class="mobile-tabbar-button-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+                <circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M6 18.5c1.6-2.4 3.8-3.6 6-3.6s4.4 1.2 6 3.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+        </span>
+    </button>
 </nav>
 <div id="notificationCenter" class="notification-center" aria-live="polite" aria-atomic="false"></div>
 <div id="toast" class="toast hidden"></div>
-<script src="/app.js?v=20260318-product-shell-1" defer></script>
+<script src="/app.js?v=20260318-mobile-nav-remove-1" defer></script>
 </body>
 </html>

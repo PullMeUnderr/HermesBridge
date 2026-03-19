@@ -834,8 +834,12 @@ async function loadConversations() {
 async function loadMessages(conversationId) {
   state.loadingMessages = true;
   state.loadingMembers = true;
-  renderMessages();
-  renderMembers(state.currentMembers);
+  if (state.currentMessages.length === 0) {
+    renderMessages();
+  }
+  if (state.currentMembers.length === 0) {
+    renderMembers(state.currentMembers);
+  }
   try {
     const [messages, members] = await Promise.all([
       api(`/api/conversations/${conversationId}/messages`),

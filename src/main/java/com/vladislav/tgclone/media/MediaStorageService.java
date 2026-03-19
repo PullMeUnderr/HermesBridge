@@ -46,13 +46,12 @@ public class MediaStorageService {
     private final MediaProperties mediaProperties;
     private final Clock clock;
     private final S3Client objectStorageClient;
-    private final S3Presigner objectStoragePresigner;
+    private volatile S3Presigner objectStoragePresigner;
 
     public MediaStorageService(MediaProperties mediaProperties, Clock clock) {
         this.mediaProperties = mediaProperties;
         this.clock = clock;
         this.objectStorageClient = mediaProperties.useObjectStorage() ? buildObjectStorageClient(mediaProperties) : null;
-        this.objectStoragePresigner = mediaProperties.useObjectStorage() ? buildObjectStoragePresigner(mediaProperties) : null;
     }
 
     public StoredMediaFile store(String originalFilename, String mimeType, byte[] content) {
@@ -193,7 +192,7 @@ public class MediaStorageService {
             );
         }
 
-        return objectStoragePresigner.presignGetObject(
+        return getObjectStoragePresigner().presignGetObject(
             GetObjectPresignRequest.builder()
                 .signatureDuration(ttl)
                 .getObjectRequest(getObjectRequestBuilder.build())
@@ -228,6 +227,17 @@ public class MediaStorageService {
         } catch (IllegalArgumentException ex) {
             return false;
         }
+    }
+
+    private S3Presigner getObjectStoragePresigner() {
+        if (objectStoragePresigner == null) {
+            synchronized (this) {
+                if (objectStoragePresigner == null) {
+                    objectStoragePresigner = buildObjectStoragePresigner(mediaProperties);
+                }
+            }
+        }
+        return objectStoragePresigner;
     }
 
     private Path resolveLocal(String storageKey) {

@@ -64,6 +64,9 @@ const state = {
   nextBannerId: 1,
   previousConversationMap: new Map(),
   forceScrollMessagesToBottom: false,
+  photoViewerItems: [],
+  photoViewerIndex: 0,
+  renderedProtectedMediaSnapshot: new Map(),
 };
 
 const elements = {
@@ -158,6 +161,14 @@ const elements = {
   mobileProfileTabButton: document.getElementById("mobileProfileTabButton"),
   notificationCenter: document.getElementById("notificationCenter"),
   toast: document.getElementById("toast"),
+  photoViewer: document.getElementById("photoViewer"),
+  photoViewerBackdrop: document.getElementById("photoViewerBackdrop"),
+  closePhotoViewerButton: document.getElementById("closePhotoViewerButton"),
+  photoViewerPrevButton: document.getElementById("photoViewerPrevButton"),
+  photoViewerNextButton: document.getElementById("photoViewerNextButton"),
+  photoViewerImage: document.getElementById("photoViewerImage"),
+  photoViewerCaption: document.getElementById("photoViewerCaption"),
+  photoViewerCounter: document.getElementById("photoViewerCounter"),
 };
 
 elements.tokenInput.value = state.token;
@@ -214,6 +225,7 @@ elements.logoutButton.addEventListener("click", () => {
   resetAttachmentObjectUrls();
   state.banners = [];
   state.previousConversationMap = new Map();
+  closePhotoViewer();
   stopPolling();
   render();
 });
@@ -222,6 +234,30 @@ elements.desktopOverlay.addEventListener("click", () => {
   state.desktopMembersOpen = false;
   syncMobileLayout();
   renderConversationHeader();
+});
+
+elements.photoViewerBackdrop?.addEventListener("click", closePhotoViewer);
+elements.closePhotoViewerButton?.addEventListener("click", closePhotoViewer);
+elements.photoViewerPrevButton?.addEventListener("click", () => stepPhotoViewer(-1));
+elements.photoViewerNextButton?.addEventListener("click", () => stepPhotoViewer(1));
+window.addEventListener("keydown", (event) => {
+  if (elements.photoViewer?.classList.contains("hidden")) {
+    return;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closePhotoViewer();
+    return;
+  }
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    stepPhotoViewer(-1);
+    return;
+  }
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    stepPhotoViewer(1);
+  }
 });
 
 elements.openCreateDrawerButton.addEventListener("click", () => {
@@ -861,7 +897,6 @@ async function loadMessages(conversationId) {
   }
 
   if (messagesChanged) {
-    resetAttachmentObjectUrls();
     state.currentMessages = messages;
     state.currentMessagesSignature = messagesSignature;
     if (state.replyToMessageId && !state.currentMessages.some((message) => message.id === state.replyToMessageId)) {
@@ -875,6 +910,8 @@ async function loadMessages(conversationId) {
     state.currentMembersSignature = membersSignature;
     renderMembers(members);
   }
+
+    pruneAttachmentObjectUrls();
 
     markConversationRead(conversationId).catch(() => {});
 
@@ -954,6 +991,7 @@ function render() {
   elements.tokenInput.value = state.token;
 
   if (!loggedIn) {
+    closePhotoViewer();
     elements.userCard.innerHTML = "";
     renderConversationList();
     renderConversationHeader();
@@ -1309,16 +1347,21 @@ function renderConversationSettingsForm() {
 
 function renderAvatarMarkup(label, avatarUrl, className, options = {}) {
   const protectedSource = options.protectedSource ?? isProtectedMediaUrl(avatarUrl);
+  const cachedAvatarUrl = protectedSource
+    ? getCachedProtectedObjectUrl(options.protectedKey || avatarUrl, avatarUrl)
+    : null;
   const imageMarkup = avatarUrl
-    ? `<img class="avatar-image ${protectedSource ? "hidden" : ""}" ${protectedSource
-      ? `data-protected-src="${escapeHtml(avatarUrl)}"`
+    ? `<img class="avatar-image ${protectedSource && !cachedAvatarUrl ? "hidden" : ""}" ${protectedSource
+      ? `${cachedAvatarUrl
+        ? `src="${escapeHtml(cachedAvatarUrl)}"`
+        : `data-protected-src="${escapeHtml(avatarUrl)}"`} data-protected-key="${escapeHtml(options.protectedKey || avatarUrl)}"`
       : `src="${escapeHtml(avatarUrl)}"`} alt="${escapeHtml(label)}">`
     : "";
 
   return `
     <div class="${className}">
       ${imageMarkup}
-      <span class="avatar-fallback ${avatarUrl && !protectedSource ? "hidden" : ""}">${escapeHtml(getInitials(label))}</span>
+      <span class="avatar-fallback ${avatarUrl && (!protectedSource || cachedAvatarUrl) ? "hidden" : ""}">${escapeHtml(getInitials(label))}</span>
     </div>
   `;
 }
@@ -1536,6 +1579,7 @@ function syncDesktopDrawers() {
 function renderMessages() {
   const wasNearBottom = isMessagesListNearBottom();
   const preserveScrollTop = elements.messagesList.scrollTop;
+  state.renderedProtectedMediaSnapshot = captureRenderedProtectedMediaSnapshot(elements.messagesList);
 
   if (state.loadingMessages && state.currentMessages.length === 0) {
     elements.messagesList.innerHTML = Array.from({ length: 4 }, (_, index) => `
@@ -1571,6 +1615,9 @@ function renderMessages() {
       const attachments = message.attachments || [];
       const hasAttachments = attachments.length > 0;
       const mediaOnly = hasAttachments && !String(message.body || "").trim();
+      const attachmentKinds = attachments.map(detectAttachmentDisplayKind);
+      const photoOnly = mediaOnly && attachmentKinds.length > 0 && attachmentKinds.every((kind) => kind === "PHOTO");
+      const photoAlbum = photoOnly && attachments.length > 1;
       const sourceClass = message.sourceTransport === "TELEGRAM" ? "from-telegram" : "from-hermes";
       const messageCardClassName = [
         "message-card",
@@ -1578,6 +1625,8 @@ function renderMessages() {
         sourceClass,
         hasAttachments ? "has-attachments" : "",
         mediaOnly ? "media-only" : "",
+        photoOnly ? "photo-only" : "",
+        photoAlbum ? "photo-album" : "",
       ]
         .filter(Boolean)
         .join(" ");
@@ -1606,6 +1655,7 @@ function renderMessages() {
   bindReplyActions();
   hydrateProtectedImagePreviews(elements.messagesList).catch(() => {});
   hydrateAttachmentPreviews();
+  state.renderedProtectedMediaSnapshot = new Map();
   if (state.forceScrollMessagesToBottom || wasNearBottom) {
     elements.messagesList.scrollTop = elements.messagesList.scrollHeight;
   } else {
@@ -1990,16 +2040,30 @@ function renderMessageAttachments(attachments) {
 
 function renderAttachmentCard(attachment) {
   const attachmentKind = detectAttachmentDisplayKind(attachment);
+  const cachedPreviewUrl = getCachedProtectedObjectUrl(
+    attachment.id,
+    attachment.contentUrl,
+    {
+      mimeType: attachment.mimeType,
+      fileName: attachment.fileName,
+    }
+  );
+  const previewSourceAttribute = cachedPreviewUrl
+    ? `src="${escapeHtml(cachedPreviewUrl)}"`
+    : "";
+  const previewHiddenClass = cachedPreviewUrl ? "" : "hidden";
+  const previewReadyShellClass = cachedPreviewUrl ? " is-ready" : "";
 
   if (attachmentKind === "PHOTO") {
     return `
       <figure class="attachment-card attachment-card-photo">
         <img
-          class="attachment-image hidden"
+          class="attachment-image ${previewHiddenClass}"
           data-attachment-preview-id="${attachment.id}"
           data-content-url="${escapeHtml(attachment.contentUrl)}"
           data-mime-type="${escapeHtml(attachment.mimeType || "")}"
           data-file-name="${escapeHtml(attachment.fileName || "")}"
+          ${previewSourceAttribute}
           loading="lazy"
           decoding="async"
           alt="${escapeHtml(attachment.fileName)}"
@@ -2024,13 +2088,14 @@ function renderAttachmentCard(attachment) {
     return `
       <figure class="attachment-card attachment-card-video">
         <video
-          class="attachment-video hidden"
+          class="attachment-video ${previewHiddenClass}"
           controls
           preload="metadata"
           data-attachment-preview-id="${attachment.id}"
           data-content-url="${escapeHtml(attachment.contentUrl)}"
           data-mime-type="${escapeHtml(attachment.mimeType || "")}"
           data-file-name="${escapeHtml(attachment.fileName || "")}"
+          ${previewSourceAttribute}
         ></video>
         <figcaption class="attachment-caption">
           <span>${escapeHtml(attachment.fileName)}</span>
@@ -2052,14 +2117,14 @@ function renderAttachmentCard(attachment) {
     return `
       <figure class="attachment-card attachment-card-video-note">
         <div
-          class="video-note-shell"
+          class="video-note-shell${previewReadyShellClass}"
           data-video-note-shell-id="${attachment.id}"
           tabindex="0"
           role="button"
           aria-label="Воспроизвести кружок"
         >
           <video
-            class="attachment-video-note hidden"
+            class="attachment-video-note ${previewHiddenClass}"
             playsinline
             preload="metadata"
             data-attachment-preview-id="${attachment.id}"
@@ -2067,6 +2132,7 @@ function renderAttachmentCard(attachment) {
             data-video-note-id="${attachment.id}"
             data-mime-type="${escapeHtml(attachment.mimeType || "")}"
             data-file-name="${escapeHtml(attachment.fileName || "")}"
+            ${previewSourceAttribute}
           ></video>
           <button
             class="video-note-toggle"
@@ -2097,13 +2163,14 @@ function renderAttachmentCard(attachment) {
     return `
       <div class="attachment-card attachment-card-voice">
         <audio
-          class="attachment-audio hidden"
+          class="attachment-audio ${previewHiddenClass}"
           controls
           preload="metadata"
           data-attachment-preview-id="${attachment.id}"
           data-content-url="${escapeHtml(attachment.contentUrl)}"
           data-mime-type="${escapeHtml(attachment.mimeType || "")}"
           data-file-name="${escapeHtml(attachment.fileName || "")}"
+          ${previewSourceAttribute}
         ></audio>
         <div class="attachment-caption">
           <span>${escapeHtml(attachment.fileName)}</span>
@@ -2255,6 +2322,12 @@ function bindAttachmentActions() {
     video.addEventListener("pause", syncState);
     video.addEventListener("ended", syncState);
     syncState();
+  });
+
+  elements.messagesList.querySelectorAll(".attachment-card-photo .attachment-image").forEach((image) => {
+    image.addEventListener("click", () => {
+      openPhotoViewerFromImage(image);
+    });
   });
 }
 
@@ -2424,6 +2497,77 @@ function renderMentionSuggestions() {
   });
 }
 
+function openPhotoViewerFromImage(imageElement) {
+  if (!imageElement) {
+    return;
+  }
+
+  const attachmentsContainer = imageElement.closest(".message-attachments");
+  const albumImages = attachmentsContainer
+    ? Array.from(attachmentsContainer.querySelectorAll(".attachment-card-photo .attachment-image"))
+    : [imageElement];
+  const items = albumImages
+    .filter((image) => !image.classList.contains("hidden") && image.src)
+    .map((image) => ({
+      src: image.src,
+      fileName: image.dataset.fileName || image.getAttribute("alt") || "Изображение",
+    }));
+
+  if (items.length === 0) {
+    return;
+  }
+
+  const activeSrc = imageElement.src;
+  const activeIndex = Math.max(0, items.findIndex((item) => item.src === activeSrc));
+  state.photoViewerItems = items;
+  state.photoViewerIndex = activeIndex;
+  renderPhotoViewer();
+}
+
+function renderPhotoViewer() {
+  const visible = state.photoViewerItems.length > 0;
+  elements.photoViewer.classList.toggle("hidden", !visible);
+  elements.photoViewer.setAttribute("aria-hidden", String(!visible));
+
+  if (!visible) {
+    elements.photoViewerImage.removeAttribute("src");
+    elements.photoViewerImage.alt = "";
+    elements.photoViewerCaption.textContent = "";
+    elements.photoViewerCounter.textContent = "";
+    document.body.classList.remove("viewer-open");
+    return;
+  }
+
+  const item = state.photoViewerItems[state.photoViewerIndex];
+  const multiple = state.photoViewerItems.length > 1;
+  elements.photoViewerImage.src = item.src;
+  elements.photoViewerImage.alt = item.fileName || "Изображение";
+  elements.photoViewerCaption.textContent = item.fileName || "Изображение";
+  elements.photoViewerCounter.textContent = multiple
+    ? `${state.photoViewerIndex + 1} / ${state.photoViewerItems.length}`
+    : "";
+  elements.photoViewerPrevButton.disabled = !multiple;
+  elements.photoViewerNextButton.disabled = !multiple;
+  document.body.classList.add("viewer-open");
+}
+
+function closePhotoViewer() {
+  state.photoViewerItems = [];
+  state.photoViewerIndex = 0;
+  renderPhotoViewer();
+}
+
+function stepPhotoViewer(direction) {
+  if (state.photoViewerItems.length < 2) {
+    return;
+  }
+
+  const nextIndex =
+    (state.photoViewerIndex + direction + state.photoViewerItems.length) % state.photoViewerItems.length;
+  state.photoViewerIndex = nextIndex;
+  renderPhotoViewer();
+}
+
 function clearMentionSuggestions() {
   state.mentionSuggestions = [];
   state.activeMentionRange = null;
@@ -2573,7 +2717,7 @@ async function ensureProtectedObjectUrl(resourceKey, contentUrl, options = {}) {
 
   const expectedMimeType = String(options.mimeType || "").trim().toLowerCase();
   const expectedFileName = String(options.fileName || "").trim();
-  const cacheKey = `${resourceKey}:${contentUrl}:${expectedMimeType}:${expectedFileName}`;
+  const cacheKey = buildProtectedObjectUrlCacheKey(resourceKey, contentUrl, options);
   if (state.attachmentObjectUrls.has(cacheKey)) {
     return state.attachmentObjectUrls.get(cacheKey);
   }
@@ -2591,6 +2735,26 @@ async function ensureProtectedObjectUrl(resourceKey, contentUrl, options = {}) {
   const objectUrl = URL.createObjectURL(repairedBlob);
   state.attachmentObjectUrls.set(cacheKey, objectUrl);
   return objectUrl;
+}
+
+function getCachedProtectedObjectUrl(resourceKey, contentUrl, options = {}) {
+  const cacheKey = buildProtectedObjectUrlCacheKey(resourceKey, contentUrl, options);
+  if (!cacheKey) {
+    return contentUrl || null;
+  }
+  return state.attachmentObjectUrls.get(cacheKey)
+    || state.renderedProtectedMediaSnapshot.get(cacheKey)
+    || null;
+}
+
+function buildProtectedObjectUrlCacheKey(resourceKey, contentUrl, options = {}) {
+  if (!isProtectedMediaUrl(contentUrl)) {
+    return null;
+  }
+
+  const expectedMimeType = String(options.mimeType || "").trim().toLowerCase();
+  const expectedFileName = String(options.fileName || "").trim();
+  return `${resourceKey}:${contentUrl}:${expectedMimeType}:${expectedFileName}`;
 }
 
 function repairPreviewBlobType(blob, expectedMimeType, fileName) {
@@ -2918,6 +3082,87 @@ function renderComposerState() {
 function resetAttachmentObjectUrls() {
   state.attachmentObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   state.attachmentObjectUrls.clear();
+}
+
+function captureRenderedProtectedMediaSnapshot(rootElement) {
+  const snapshot = new Map();
+  if (!rootElement) {
+    return snapshot;
+  }
+
+  rootElement.querySelectorAll("[data-attachment-preview-id]").forEach((mediaElement) => {
+    const cacheKey = buildProtectedObjectUrlCacheKey(
+      mediaElement.dataset.attachmentPreviewId,
+      mediaElement.dataset.contentUrl,
+      {
+        mimeType: mediaElement.dataset.mimeType,
+        fileName: mediaElement.dataset.fileName,
+      }
+    );
+    const resolvedSrc = mediaElement.currentSrc || mediaElement.src;
+    if (cacheKey && resolvedSrc) {
+      snapshot.set(cacheKey, resolvedSrc);
+    }
+  });
+
+  rootElement.querySelectorAll("[data-protected-src]").forEach((imageElement) => {
+    const cacheKey = buildProtectedObjectUrlCacheKey(
+      imageElement.dataset.protectedKey || imageElement.dataset.protectedSrc,
+      imageElement.dataset.protectedSrc
+    );
+    if (cacheKey && imageElement.src) {
+      snapshot.set(cacheKey, imageElement.src);
+    }
+  });
+
+  return snapshot;
+}
+
+function pruneAttachmentObjectUrls() {
+  if (state.attachmentObjectUrls.size === 0) {
+    return;
+  }
+
+  const liveKeys = new Set();
+  const rememberProtectedUrl = (resourceKey, contentUrl, options = {}) => {
+    const cacheKey = buildProtectedObjectUrlCacheKey(resourceKey, contentUrl, options);
+    if (cacheKey) {
+      liveKeys.add(cacheKey);
+    }
+  };
+
+  for (const conversation of state.conversations) {
+    if (conversation?.avatarUrl) {
+      rememberProtectedUrl(conversation.avatarUrl, conversation.avatarUrl);
+    }
+  }
+
+  if (state.me?.avatarUrl) {
+    rememberProtectedUrl(state.me.avatarUrl, state.me.avatarUrl);
+  }
+
+  for (const member of state.currentMembers) {
+    if (member?.avatarUrl) {
+      rememberProtectedUrl(member.avatarUrl, member.avatarUrl);
+    }
+  }
+
+  for (const message of state.currentMessages) {
+    for (const attachment of message.attachments || []) {
+      rememberProtectedUrl(attachment.id, attachment.contentUrl, {
+        mimeType: attachment.mimeType,
+        fileName: attachment.fileName,
+      });
+    }
+  }
+
+  for (const [cacheKey, objectUrl] of state.attachmentObjectUrls.entries()) {
+    if (liveKeys.has(cacheKey)) {
+      continue;
+    }
+    URL.revokeObjectURL(objectUrl);
+    state.attachmentObjectUrls.delete(cacheKey);
+  }
 }
 
 function showToast(message, kind = "success", duration = 4200) {

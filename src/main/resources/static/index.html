@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/app.css?v=20260319-telegram-desktop-2">
+    <link rel="stylesheet" href="/app.css?v=20260319-telegram-desktop-3">
     <style>
         body{margin:0;background:#07090e;color:#eef2fb;font-family:"IBM Plex Sans","Segoe UI",sans-serif}
         .page-shell{max-width:1560px;margin:0 auto;padding:20px}
@@ -480,6 +480,21 @@
 </nav>
 <div id="notificationCenter" class="notification-center" aria-live="polite" aria-atomic="false"></div>
 <div id="toast" class="toast hidden"></div>
-<script src="/app.js?v=20260319-telegram-desktop-2" defer></script>
+<div id="photoViewer" class="photo-viewer hidden" aria-hidden="true">
+    <button id="photoViewerBackdrop" class="photo-viewer-backdrop" type="button" aria-label="Закрыть просмотр"></button>
+    <div class="photo-viewer-shell" role="dialog" aria-modal="true" aria-label="Просмотр изображения">
+        <button id="closePhotoViewerButton" class="photo-viewer-close" type="button" aria-label="Закрыть">×</button>
+        <button id="photoViewerPrevButton" class="photo-viewer-nav photo-viewer-prev" type="button" aria-label="Предыдущее изображение">‹</button>
+        <figure class="photo-viewer-figure">
+            <img id="photoViewerImage" class="photo-viewer-image" alt="">
+            <figcaption class="photo-viewer-meta">
+                <span id="photoViewerCaption" class="photo-viewer-caption"></span>
+                <span id="photoViewerCounter" class="photo-viewer-counter"></span>
+            </figcaption>
+        </figure>
+        <button id="photoViewerNextButton" class="photo-viewer-nav photo-viewer-next" type="button" aria-label="Следующее изображение">›</button>
+    </div>
+</div>
+<script src="/app.js?v=20260319-telegram-desktop-3" defer></script>
 </body>
 </html>

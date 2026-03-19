@@ -66,7 +66,20 @@ public class AuthController {
     public ResponseEntity<InputStreamResource> myAvatar(@AuthenticationPrincipal AuthenticatedUser authenticatedUser)
         throws IOException {
         UserAccountService.ResolvedUserAvatar resolvedUserAvatar = userAccountService.resolveOwnAvatar(authenticatedUser);
-        UserAccount userAccount = resolvedUserAvatar.userAccount();
+        return avatarResponse(resolvedUserAvatar.userAccount());
+    }
+
+    @GetMapping("/users/{userId}/avatar")
+    public ResponseEntity<InputStreamResource> userAvatar(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+        @org.springframework.web.bind.annotation.PathVariable Long userId
+    ) throws IOException {
+        UserAccountService.ResolvedUserAvatar resolvedUserAvatar =
+            userAccountService.resolveAvatarForViewer(authenticatedUser, userId);
+        return avatarResponse(resolvedUserAvatar.userAccount());
+    }
+
+    private ResponseEntity<InputStreamResource> avatarResponse(UserAccount userAccount) throws IOException {
         InputStreamResource body;
         try {
             body = new InputStreamResource(mediaStorageService.openStream(userAccount.getAvatarStorageKey()));

@@ -70,20 +70,17 @@ public class MediaStorageService {
         String datePartition = PARTITION_FORMAT.format(now);
         String storageKey = datePartition + "/" + UUID.randomUUID() + "-" + safeFilename;
 
-        Path target = null;
+        Path target = storeLocally(storageKey, content);
         if (mediaProperties.useObjectStorage()) {
             try {
                 storeInObjectStorage(storageKey, resolvedMimeType, content);
             } catch (IllegalStateException ex) {
                 log.warn(
-                    "Falling back to local media storage for key {} after object storage write failed: {}",
+                    "Stored media locally for key {} after object storage write failed: {}",
                     storageKey,
                     ex.getMessage()
                 );
-                target = storeLocally(storageKey, content);
             }
-        } else {
-            target = storeLocally(storageKey, content);
         }
 
         return new StoredMediaFile(storageKey, target, safeFilename, resolvedMimeType, content.length);
@@ -94,6 +91,7 @@ public class MediaStorageService {
             try {
                 return openObjectStorageStream(storageKey);
             } catch (IllegalStateException ex) {
+                log.warn("Falling back to local media read for key {}: {}", storageKey, ex.getMessage());
                 if (!localFileExists(storageKey)) {
                     throw ex;
                 }
@@ -125,10 +123,18 @@ public class MediaStorageService {
 
         String sanitized = sanitizeFilename(preferredFilename);
         String suffix = extractSuffix(sanitized);
-        try (InputStream inputStream = openObjectStorageStream(storageKey)) {
-            Path tempFile = Files.createTempFile("hermes-media-", suffix);
-            Files.copy(inputStream, tempFile, StandardCopyOption.REPLACE_EXISTING);
-            return new MaterializedMediaFile(tempFile, true);
+        try {
+            try (InputStream inputStream = openObjectStorageStream(storageKey)) {
+                Path tempFile = Files.createTempFile("hermes-media-", suffix);
+                Files.copy(inputStream, tempFile, StandardCopyOption.REPLACE_EXISTING);
+                return new MaterializedMediaFile(tempFile, true);
+            }
+        } catch (IllegalStateException ex) {
+            log.warn("Falling back to local media materialization for key {}: {}", storageKey, ex.getMessage());
+            if (!localFileExists(storageKey)) {
+                throw ex;
+            }
+            return new MaterializedMediaFile(resolveLocal(storageKey), false);
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to materialize media from object storage", ex);
         }

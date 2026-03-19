@@ -112,6 +112,7 @@ const elements = {
   mobileBackButton: document.getElementById("mobileBackButton"),
   toggleMembersButton: document.getElementById("toggleMembersButton"),
   closeMembersPanelButton: document.getElementById("closeMembersPanelButton"),
+  conversationHeaderAvatar: document.getElementById("conversationHeaderAvatar"),
   conversationTitle: document.getElementById("conversationTitle"),
   conversationRole: document.getElementById("conversationRole"),
   conversationMeta: document.getElementById("conversationMeta"),
@@ -1408,23 +1409,23 @@ function renderConversationHeader() {
   elements.mobileBackButton.disabled = !hasSelection;
   elements.toggleMembersButton.disabled = !hasSelection;
   elements.toggleMembersButton.classList.toggle("hidden", !hasSelection);
-  const mobileViewport = isMobileViewport();
   const membersActionLabel = membersPanelOpen ? "Скрыть состав" : "Состав";
-  elements.toggleMembersButton.textContent = mobileViewport ? "≡" : membersActionLabel;
+  setHeaderActionLabel(elements.toggleMembersButton, membersActionLabel);
   elements.toggleMembersButton.setAttribute("aria-label", membersActionLabel);
   elements.toggleMembersButton.title = membersActionLabel;
   const inviteActionLabel = "Создать инвайт";
-  elements.createInviteButton.textContent = mobileViewport ? "+" : inviteActionLabel;
+  setHeaderActionLabel(elements.createInviteButton, inviteActionLabel);
   elements.createInviteButton.setAttribute("aria-label", inviteActionLabel);
   elements.createInviteButton.title = inviteActionLabel;
   const refreshActionLabel = "Обновить";
-  elements.refreshMessagesButton.textContent = mobileViewport ? "↻" : refreshActionLabel;
+  setHeaderActionLabel(elements.refreshMessagesButton, refreshActionLabel);
   elements.refreshMessagesButton.setAttribute("aria-label", refreshActionLabel);
   elements.refreshMessagesButton.title = refreshActionLabel;
   renderComposerState();
   renderReplyComposer();
 
   if (!hasSelection) {
+    elements.conversationHeaderAvatar.innerHTML = "";
     elements.messagesList.innerHTML = "";
     elements.membersList.innerHTML = "";
     state.mobileMembersOpen = false;
@@ -1432,11 +1433,22 @@ function renderConversationHeader() {
     return;
   }
 
+  elements.conversationHeaderAvatar.innerHTML = renderAvatarMarkup(
+    selectedConversation.title,
+    selectedConversation.avatarUrl,
+    "conversation-avatar",
+    { protectedSource: isProtectedMediaUrl(selectedConversation.avatarUrl) }
+  );
   elements.conversationTitle.textContent = selectedConversation.title;
   elements.conversationRole.textContent = selectedConversation.membershipRole;
   elements.conversationMeta.textContent = formatConversationMeta(selectedConversation.id, state.currentMembers.length || 0);
   renderConversationSettingsForm();
   syncMobileLayout();
+  hydrateProtectedImagePreviews(elements.conversationHeaderAvatar).catch(() => {});
+}
+
+function setHeaderActionLabel(button, label) {
+  button.querySelector(".header-action-label")?.replaceChildren(document.createTextNode(label));
 }
 
 function isMobileViewport() {

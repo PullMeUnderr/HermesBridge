@@ -126,6 +126,19 @@ public class UserAccountService {
         return new ResolvedUserAvatar(userAccount);
     }
 
+    @Transactional(readOnly = true)
+    public ResolvedUserAvatar resolveAvatarForViewer(AuthenticatedUser authenticatedUser, Long userId) {
+        UserAccount userAccount = requireActiveUser(userId);
+        if (!userAccount.getTenantKey().equals(authenticatedUser.tenantKey())) {
+            throw new NotFoundException("Avatar not found");
+        }
+        if (userAccount.getAvatarStorageKey() == null || userAccount.getAvatarStorageKey().isBlank()) {
+            throw new NotFoundException("Avatar not found");
+        }
+
+        return new ResolvedUserAvatar(userAccount);
+    }
+
     public String buildOwnAvatarUrl(UserAccount userAccount) {
         if (userAccount == null || userAccount.getAvatarStorageKey() == null || userAccount.getAvatarStorageKey().isBlank()) {
             return null;
@@ -142,7 +155,15 @@ public class UserAccountService {
         if (userAccount == null || userAccount.getId() == null) {
             return null;
         }
-        return buildOwnAvatarUrl(userAccount);
+        if (userAccount.getAvatarStorageKey() == null || userAccount.getAvatarStorageKey().isBlank()) {
+            return null;
+        }
+
+        Instant versionSource = userAccount.getAvatarUpdatedAt();
+        String version = versionSource == null
+            ? String.valueOf(userAccount.getId())
+            : String.valueOf(versionSource.toEpochMilli());
+        return "/api/auth/users/" + userAccount.getId() + "/avatar?v=" + version;
     }
 
     private void validateAvatarUpload(AvatarUpload avatarUpload) {

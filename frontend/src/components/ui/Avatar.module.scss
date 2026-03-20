@@ -1,0 +1,38 @@
+.avatar {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  background: linear-gradient(160deg, rgba(123, 195, 255, 0.28), rgba(255, 255, 255, 0.08));
+  color: white;
+  font-weight: 700;
+  flex: none;
+}
+
+.fallback {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sm {
+  width: 36px;
+  height: 36px;
+  font-size: 0.8rem;
+}
+
+.md {
+  width: 48px;
+  height: 48px;
+  font-size: 0.95rem;
+}
+
+.lg {
+  width: 72px;
+  height: 72px;
+  font-size: 1.2rem;
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

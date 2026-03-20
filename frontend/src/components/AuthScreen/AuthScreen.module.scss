@@ -1,0 +1,203 @@
+.layout {
+  min-height: 100vh;
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.8fr);
+  gap: 20px;
+  align-items: stretch;
+}
+
+.hero,
+.card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.004)),
+    rgba(21, 28, 39, 0.94);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(10px) saturate(102%);
+}
+
+.hero {
+  padding: 32px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 28px;
+}
+
+.copy {
+  display: grid;
+  gap: 16px;
+}
+
+.copy h1 {
+  font-size: clamp(2.2rem, 4vw, 4.6rem);
+  line-height: 0.96;
+}
+
+.copy p {
+  max-width: 52rem;
+  color: var(--muted);
+  font-size: 1.06rem;
+  line-height: 1.7;
+}
+
+.eyebrow {
+  display: inline-block;
+  font-family: var(--font-display);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tags span {
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.previewGrid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.95fr;
+  gap: 16px;
+  align-items: end;
+}
+
+.deviceCard,
+.featureGrid {
+  border-radius: 20px;
+  padding: 20px;
+  background: rgba(11, 16, 24, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dots {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.bubbles {
+  display: grid;
+  gap: 14px;
+}
+
+.bubble {
+  display: grid;
+  gap: 6px;
+  max-width: 70%;
+  padding: 14px 16px;
+  border-radius: 18px 18px 18px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+}
+
+.bubble strong {
+  color: white;
+}
+
+.outgoing {
+  justify-self: end;
+  border-radius: 18px 18px 8px 18px;
+  background: linear-gradient(180deg, #7bc3ff, #5aa9f8);
+  color: #07111d;
+}
+
+.outgoing strong {
+  color: #07111d;
+}
+
+.featureGrid {
+  display: grid;
+  gap: 14px;
+}
+
+.featureGrid div {
+  display: grid;
+  gap: 6px;
+}
+
+.featureGrid span {
+  color: var(--muted);
+}
+
+.card {
+  padding: 28px;
+  display: grid;
+  align-content: center;
+  gap: 18px;
+}
+
+.muted,
+.note p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.form {
+  display: grid;
+  gap: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 96px;
+}
+
+.field textarea,
+.form button {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(14, 16, 22, 0.94);
+  color: var(--text);
+  padding: 14px 16px;
+}
+
+.form button {
+  background: linear-gradient(180deg, #7bc3ff, #5aa9f8);
+  color: #07111d;
+  font-weight: 700;
+}
+
+.note {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+@media (max-width: 1024px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .previewGrid {
+    grid-template-columns: 1fr;
+  }
+}

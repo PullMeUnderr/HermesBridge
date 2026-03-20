@@ -6,6 +6,7 @@ import { AppShell } from "@/components/AppShell/AppShell";
 import { ToastViewport } from "@/components/ToastViewport/ToastViewport";
 import { PhotoViewerModal } from "@/components/PhotoViewerModal/PhotoViewerModal";
 import { apiRequest, readStoredToken, writeStoredToken } from "@/lib/api";
+import { cleanupProtectedMediaCache } from "@/lib/protectedMediaCache";
 import type {
   AuthUser,
   ConversationMember,
@@ -171,6 +172,10 @@ export function HermesClient() {
         setBooting(false);
       });
   }, [bootstrap, pushToast]);
+
+  useEffect(() => {
+    void cleanupProtectedMediaCache(true);
+  }, [token]);
 
   useEffect(() => {
     if (!selectedConversationId || !token) {

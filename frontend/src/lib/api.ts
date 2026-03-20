@@ -1,8 +1,9 @@
+import { getProtectedMediaBlob } from "@/lib/protectedMediaCache"
+
 const TOKEN_KEY = "hermes_token"
 
 function getApiBaseUrl() {
-  // return process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ?? "";
-  return "https://hermesbridge.space/"
+  return process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ?? ""
 }
 
 function shouldAttachNgrokBypassHeader(hostname: string) {
@@ -89,14 +90,17 @@ export async function fetchProtectedBlobUrl(token: string, src: string) {
     src.startsWith("http://") || src.startsWith("https://")
       ? src
       : resolveUrl(src)
-  const response = await fetch(url, {
-    headers: buildHeaders(token),
+  const blob = await getProtectedMediaBlob(token, url, async () => {
+    const response = await fetch(url, {
+      headers: buildHeaders(token),
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    return response
   })
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
-  }
-
-  const blob = await response.blob()
   return URL.createObjectURL(blob)
 }

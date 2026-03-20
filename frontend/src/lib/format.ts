@@ -95,3 +95,7 @@ export function isVideoAttachment(mimeType: string | null, kind: string) {
 export function isAudioAttachment(mimeType: string | null, kind: string) {
   return kind === "VOICE" || String(mimeType ?? "").startsWith("audio/");
 }
+
+export function isVideoNoteAttachment(kind: string) {
+  return kind === "VIDEO_NOTE";
+}

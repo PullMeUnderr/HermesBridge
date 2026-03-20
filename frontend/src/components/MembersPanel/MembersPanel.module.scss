@@ -1,12 +1,13 @@
 .panel {
   display: grid;
   align-content: start;
-  gap: 16px;
-  padding: 18px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 6px;
+  padding: 10px;
+  background:
+    linear-gradient(180deg, rgba(16, 18, 24, 0.98), rgba(10, 12, 18, 0.98));
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .caption {
@@ -20,16 +21,16 @@
 
 .list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  padding: 12px;
-  border-radius: 16px;
+  padding: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.03);
 }
 
@@ -41,24 +42,25 @@
 
 .copy span {
   color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-size: 0.8rem;
 }
 
 .role {
-  padding: 6px 10px;
-  border-radius: 999px;
+  margin-top: 4px;
+  padding: 4px 7px;
+  border-radius: 6px;
   background: rgba(123, 195, 255, 0.12);
   color: #a4d5ff;
-  font-size: 0.8rem;
+  font-size: 0.68rem;
 }
 
 .note {
   display: grid;
   gap: 8px;
-  padding: 14px;
-  border-radius: 16px;
+  padding: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
 }
 

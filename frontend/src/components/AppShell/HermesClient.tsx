@@ -37,6 +37,8 @@ export function HermesClient() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [photoViewer, setPhotoViewer] = useState<PhotoViewerState>(EMPTY_PHOTO_VIEWER);
   const toastIdRef = useRef(1);
+  const lastReadConversationIdRef = useRef<number | null>(null);
+  const conversationLoadSeqRef = useRef(0);
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
@@ -108,26 +110,46 @@ export function HermesClient() {
   }, [request, token]);
 
   const loadConversationData = useCallback(
-    async (conversationId: number) => {
+    async (
+      conversationId: number,
+      options: { includeMembers?: boolean; markRead?: boolean } = {},
+    ) => {
+      const { includeMembers = true, markRead = true } = options;
+      const requestSeq = ++conversationLoadSeqRef.current;
       setLoadingConversationData(true);
       try {
-        const [nextMessages, nextMembers] = await Promise.all([
+        const requests: [Promise<ConversationMessage[]>, Promise<ConversationMember[]> | Promise<null>] = [
           request<ConversationMessage[]>(`/api/conversations/${conversationId}/messages`),
-          request<ConversationMember[]>(`/api/conversations/${conversationId}/members`),
-        ]);
+          includeMembers
+            ? request<ConversationMember[]>(`/api/conversations/${conversationId}/members`)
+            : Promise.resolve(null),
+        ];
+
+        const [nextMessages, nextMembers] = await Promise.all(requests);
+        if (requestSeq !== conversationLoadSeqRef.current) {
+          return;
+        }
         setMessages(nextMessages);
-        setMembers(nextMembers);
-        await request(`/api/conversations/${conversationId}/read`, {
-          method: "POST",
-          body: JSON.stringify({}),
-        });
-        setConversations((current) =>
-          current.map((conversation) =>
-            conversation.id === conversationId ? { ...conversation, unreadCount: 0 } : conversation,
-          ),
-        );
+        if (nextMembers) {
+          setMembers(nextMembers);
+        }
+
+        if (markRead && lastReadConversationIdRef.current !== conversationId) {
+          await request(`/api/conversations/${conversationId}/read`, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          lastReadConversationIdRef.current = conversationId;
+          setConversations((current) =>
+            current.map((conversation) =>
+              conversation.id === conversationId ? { ...conversation, unreadCount: 0 } : conversation,
+            ),
+          );
+        }
       } finally {
-        setLoadingConversationData(false);
+        if (requestSeq === conversationLoadSeqRef.current) {
+          setLoadingConversationData(false);
+        }
       }
     },
     [request],
@@ -181,10 +203,12 @@ export function HermesClient() {
     if (!selectedConversationId || !token) {
       setMessages([]);
       setMembers([]);
+      lastReadConversationIdRef.current = null;
       return;
     }
 
-    loadConversationData(selectedConversationId).catch((error) => {
+    lastReadConversationIdRef.current = null;
+    loadConversationData(selectedConversationId, { includeMembers: true, markRead: true }).catch((error) => {
       pushToast(error instanceof Error ? error.message : "Не удалось загрузить чат.", "error");
     });
   }, [loadConversationData, pushToast, selectedConversationId, token]);
@@ -195,11 +219,15 @@ export function HermesClient() {
     }
 
     const handle = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+
       void loadConversations();
       if (selectedConversationId) {
-        void loadConversationData(selectedConversationId);
+        void loadConversationData(selectedConversationId, { includeMembers: false, markRead: false });
       }
-    }, 4000);
+    }, 15000);
 
     return () => window.clearInterval(handle);
   }, [loadConversationData, loadConversations, me, selectedConversationId, token]);
@@ -370,6 +398,9 @@ export function HermesClient() {
         }
         if (sendAsVideoNote) {
           formData.append("sendAsVideoNote", "true");
+        }
+        if (attachments.length === 1 && attachments[0]?.source === "voice") {
+          formData.append("sendAsVoice", "true");
         }
         attachments.forEach((attachment) => formData.append("files", attachment.file));
         await request(`/api/conversations/${selectedConversationId}/messages/upload`, {

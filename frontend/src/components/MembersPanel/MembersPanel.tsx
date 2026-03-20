@@ -8,11 +8,12 @@ import type { ConversationMember } from "@/types/api";
 interface MembersPanelProps {
   token: string;
   members: ConversationMember[];
+  className?: string;
 }
 
-export function MembersPanel({ token, members }: MembersPanelProps) {
+export function MembersPanel({ token, members, className }: MembersPanelProps) {
   return (
-    <aside className={styles.panel}>
+    <aside className={`${styles.panel} ${className ?? ""}`}>
       <div>
         <div className={styles.caption}>Состав</div>
         <h3>Участники</h3>

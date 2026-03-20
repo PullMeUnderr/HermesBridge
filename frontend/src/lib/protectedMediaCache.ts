@@ -44,6 +44,10 @@ async function buildCacheKey(token: string, resolvedUrl: string) {
   return `media:${fingerprint}:${urlHash}`;
 }
 
+function toCacheRequest(cacheKey: string) {
+  return new Request(new URL(`/__cache/protected-media/${encodeURIComponent(cacheKey)}`, window.location.origin).toString());
+}
+
 function readMetadata(cacheKey: string) {
   if (typeof window === "undefined") {
     return null;
@@ -103,7 +107,7 @@ function listMetadataEntries() {
 }
 
 async function deleteCachedEntry(cache: Cache, cacheKey: string) {
-  await cache.delete(cacheKey);
+  await cache.delete(toCacheRequest(cacheKey));
   deleteMetadata(cacheKey);
 }
 
@@ -165,7 +169,7 @@ export async function getProtectedMediaBlob(
   const now = Date.now();
 
   if (metadata && metadata.expiresAt > now) {
-    const cachedResponse = await cache.match(cacheKey);
+    const cachedResponse = await cache.match(toCacheRequest(cacheKey));
     if (cachedResponse) {
       return cachedResponse.blob();
     }
@@ -175,7 +179,7 @@ export async function getProtectedMediaBlob(
 
   const response = await fetcher();
   const responseForCache = response.clone();
-  await cache.put(cacheKey, responseForCache);
+  await cache.put(toCacheRequest(cacheKey), responseForCache);
   writeMetadata(cacheKey, {
     createdAt: now,
     expiresAt: now + MEDIA_CACHE_TTL_MS,

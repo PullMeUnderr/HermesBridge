@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "./Avatar.module.scss";
+import { useLazyVisible } from "@/hooks/useLazyVisible";
 import { useProtectedObjectUrl } from "@/hooks/useProtectedObjectUrl";
 import { getInitials } from "@/lib/format";
 
@@ -12,14 +13,15 @@ interface AvatarProps {
 }
 
 export function Avatar({ token, name, src, size = "md" }: AvatarProps) {
-  const resolvedSrc = useProtectedObjectUrl(token, src);
+  const { ref, visible } = useLazyVisible<HTMLDivElement>();
+  const resolvedSrc = useProtectedObjectUrl(token, src, visible || !src);
 
   return resolvedSrc ? (
-    <div className={`${styles.avatar} ${styles[size]}`}>
+    <div ref={ref} className={`${styles.avatar} ${styles[size]}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img alt={name} src={resolvedSrc} className={styles.image} />
+      <img alt={name} src={resolvedSrc} className={styles.image} loading="lazy" />
     </div>
   ) : (
-    <div className={`${styles.avatar} ${styles[size]} ${styles.fallback}`}>{getInitials(name)}</div>
+    <div ref={ref} className={`${styles.avatar} ${styles[size]} ${styles.fallback}`}>{getInitials(name)}</div>
   );
 }

@@ -1,18 +1,29 @@
 .shell,
 .emptyState {
   display: grid;
-  gap: 20px;
-  padding: 22px;
+  gap: 0;
+  padding: 0;
+  height: 100%;
   min-height: 0;
   border-radius: 22px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.004)),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.004)
+    ),
     var(--panel);
   border: 1px solid var(--panel-border);
   box-shadow: var(--shadow-lg);
 }
 
+.shell {
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
 .emptyState {
+  padding: 32px;
   align-content: center;
 }
 
@@ -32,80 +43,152 @@
 .header {
   display: flex;
   justify-content: space-between;
-  gap: 20px;
-  align-items: center;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 10px 14px 9px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.012), rgba(255, 255, 255, 0)),
+    rgba(15, 17, 22, 0.96);
 }
 
 .headerMain {
   display: flex;
-  gap: 16px;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.backButton {
+  display: none;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
   align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(34, 45, 60, 0.96);
+}
+
+.backButton svg {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 .topline {
   display: flex;
   gap: 10px;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
   align-items: center;
 }
 
 .role,
 .online {
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 0.8rem;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 0.72rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: var(--font-display);
 }
 
 .online {
-  color: #93c9ff;
+  color: var(--muted);
 }
 
 .actions {
   display: flex;
-  gap: 10px;
+  gap: 6px;
 }
 
-.secondaryButton,
-.ghostButton {
-  padding: 12px 16px;
-  border-radius: 12px;
+.iconButton,
+.closeButton {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
   color: var(--text);
   border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.secondaryButton {
   background: rgba(34, 45, 60, 0.96);
+  font-size: 0.82rem;
 }
 
-.ghostButton {
-  background: rgba(255, 255, 255, 0.05);
+.iconButton svg {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 .columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 20px;
+  display: flex;
+  height: 100%;
   min-height: 0;
 }
 
 .messagesPanel {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  gap: 16px;
+  gap: 0;
   min-height: 0;
+  overflow: hidden;
+  width: 100%;
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.028), transparent 24%),
+    linear-gradient(180deg, #101a25 0%, #0f1823 100%);
+}
+
+.membersOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(5, 8, 12, 0.36);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.membersSheet {
+  width: min(360px, 100%);
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: rgba(15, 17, 22, 0.98);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.membersSheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.membersPanelFloating {
+  padding: 14px 14px 18px;
 }
 
 @media (max-width: 1100px) {
-  .columns {
-    grid-template-columns: 1fr;
-  }
-
   .header {
     display: grid;
   }
 
+  .backButton {
+    display: inline-flex;
+  }
+
   .actions {
     flex-wrap: wrap;
+  }
+
+  .membersSheet {
+    width: min(100%, 340px);
   }
 }

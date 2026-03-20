@@ -23,6 +23,7 @@ interface DrawerPanelProps {
     payload: { title: string; avatar?: File | null; removeAvatar?: boolean; muted?: boolean },
   ) => Promise<void>;
   onDeleteConversation: (conversationId: number) => Promise<void>;
+  inline?: boolean;
 }
 
 export function DrawerPanel({
@@ -36,6 +37,7 @@ export function DrawerPanel({
   onUpdateProfile,
   onUpdateConversation,
   onDeleteConversation,
+  inline = false,
 }: DrawerPanelProps) {
   const [createTitle, setCreateTitle] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -45,18 +47,22 @@ export function DrawerPanel({
   const [removeProfileAvatar, setRemoveProfileAvatar] = useState(false);
   const [conversationTitle, setConversationTitle] = useState(conversation?.title ?? "");
   const [conversationAvatar, setConversationAvatar] = useState<File | null>(null);
-  const [removeConversationAvatar, setRemoveConversationAvatar] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     setProfileName(me.displayName);
     setProfileUsername(me.username);
     setConversationTitle(conversation?.title ?? "");
-  }, [conversation?.title, me.displayName, me.username]);
+    setErrorMessage("");
+  }, [conversation?.title, me.displayName, me.username, mode, open]);
 
   if (!open || !mode) {
     return null;
   }
+
+  const canManageConversation =
+    conversation?.membershipRole === "OWNER" || conversation?.membershipRole === "ADMIN";
 
   async function handleCreate(event: FormEvent) {
     event.preventDefault();
@@ -65,8 +71,11 @@ export function DrawerPanel({
     }
     setBusy(true);
     try {
+      setErrorMessage("");
       await onCreateConversation(createTitle.trim());
       setCreateTitle("");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Не удалось создать чат.");
     } finally {
       setBusy(false);
     }
@@ -79,8 +88,11 @@ export function DrawerPanel({
     }
     setBusy(true);
     try {
+      setErrorMessage("");
       await onJoinConversation(inviteCode.trim());
       setInviteCode("");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Не удалось войти по коду.");
     } finally {
       setBusy(false);
     }
@@ -90,6 +102,7 @@ export function DrawerPanel({
     event.preventDefault();
     setBusy(true);
     try {
+      setErrorMessage("");
       await onUpdateProfile({
         displayName: profileName.trim(),
         username: profileUsername.trim(),
@@ -98,6 +111,8 @@ export function DrawerPanel({
       });
       setProfileAvatar(null);
       setRemoveProfileAvatar(false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Не удалось обновить профиль.");
     } finally {
       setBusy(false);
     }
@@ -105,26 +120,69 @@ export function DrawerPanel({
 
   async function handleConversation(event: FormEvent) {
     event.preventDefault();
-    if (!conversation) {
+    if (!conversation || !canManageConversation) {
+      if (!canManageConversation) {
+        setErrorMessage("Только owner или admin могут менять фото и название чата.");
+      }
       return;
     }
     setBusy(true);
     try {
+      setErrorMessage("");
       await onUpdateConversation(conversation.id, {
         title: conversationTitle.trim(),
         avatar: conversationAvatar,
-        removeAvatar: removeConversationAvatar,
       });
       setConversationAvatar(null);
-      setRemoveConversationAvatar(false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Не удалось обновить чат.");
     } finally {
       setBusy(false);
     }
   }
 
+  async function handleToggleMute() {
+    if (!conversation) {
+      return;
+    }
+
+    setBusy(true);
+    try {
+      setErrorMessage("");
+      await onUpdateConversation(conversation.id, {
+        title: conversationTitle.trim(),
+        muted: !conversation.muted,
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Не удалось обновить уведомления.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteConversation() {
+    if (!conversation || !canManageConversation) {
+      setErrorMessage("Только owner или admin могут удалить чат.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      setErrorMessage("");
+      await onDeleteConversation(conversation.id);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Не удалось удалить чат.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const rootClassName = inline ? styles.inlineRoot : styles.backdrop;
+  const drawerClassName = inline ? `${styles.drawer} ${styles.inlineDrawer}` : styles.drawer;
+
   return (
-    <div className={styles.backdrop}>
-      <section className={styles.drawer}>
+    <div className={rootClassName}>
+      <section className={drawerClassName}>
         <div className={styles.head}>
           <div>
             <div className={styles.caption}>
@@ -144,6 +202,8 @@ export function DrawerPanel({
             ×
           </button>
         </div>
+
+        {errorMessage && <div className={styles.errorBanner}>{errorMessage}</div>}
 
         {mode === "create" && (
           <form className={styles.form} onSubmit={handleCreate}>
@@ -191,47 +251,42 @@ export function DrawerPanel({
 
         {mode === "conversation" && conversation && (
           <form className={styles.form} onSubmit={handleConversation}>
+            {!canManageConversation && (
+              <div className={styles.helperNote}>
+                Фото, название и удаление чата доступны только ролям <strong>OWNER</strong> или <strong>ADMIN</strong>.
+              </div>
+            )}
             <input
               value={conversationTitle}
               onChange={(event) => setConversationTitle(event.target.value)}
               placeholder="Название чата"
+              disabled={!canManageConversation || busy}
             />
             <label className={styles.fileField}>
               <span>Аватар чата</span>
               <input
                 type="file"
                 accept="image/*"
+                disabled={!canManageConversation || busy}
                 onChange={(event) => setConversationAvatar(event.target.files?.[0] ?? null)}
               />
-            </label>
-            <label className={styles.checkbox}>
-              <input
-                type="checkbox"
-                checked={removeConversationAvatar}
-                onChange={(event) => setRemoveConversationAvatar(event.target.checked)}
-              />
-              <span>Удалить текущий аватар</span>
             </label>
             <button
               className={styles.secondary}
               type="button"
-              onClick={() =>
-                void onUpdateConversation(conversation.id, {
-                  title: conversationTitle.trim(),
-                  muted: !conversation.muted,
-                })
-              }
+              disabled={busy}
+              onClick={() => void handleToggleMute()}
             >
               {conversation.muted ? "Включить уведомления" : "Заглушить чат"}
             </button>
-            <button type="submit" disabled={busy}>
+            <button type="submit" disabled={!canManageConversation || busy}>
               Сохранить чат
             </button>
             <button
               className={styles.danger}
               type="button"
-              disabled={busy}
-              onClick={() => void onDeleteConversation(conversation.id)}
+              disabled={!canManageConversation || busy}
+              onClick={() => void handleDeleteConversation()}
             >
               Удалить чат
             </button>

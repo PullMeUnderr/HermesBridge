@@ -19,7 +19,7 @@ function isProtectedMediaUrl(url: string | null | undefined) {
   }
 }
 
-export function useProtectedObjectUrl(token: string, src: string | null | undefined) {
+export function useProtectedObjectUrl(token: string, src: string | null | undefined, enabled = true) {
   const [resolvedSrc, setResolvedSrc] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,6 +29,10 @@ export function useProtectedObjectUrl(token: string, src: string | null | undefi
     async function hydrate() {
       if (!src) {
         setResolvedSrc(null);
+        return;
+      }
+
+      if (!enabled) {
         return;
       }
 
@@ -62,7 +66,7 @@ export function useProtectedObjectUrl(token: string, src: string | null | undefi
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [src, token]);
+  }, [enabled, src, token]);
 
   return resolvedSrc;
 }

@@ -1,9 +1,10 @@
 "use client";
 
 import styles from "./Sidebar.module.scss";
+import { DrawerPanel } from "@/components/DrawerPanel/DrawerPanel";
 import { Avatar } from "@/components/ui/Avatar";
 import { formatClock, renderPresenceLabel } from "@/lib/format";
-import type { AuthUser, ConversationSummary } from "@/types/api";
+import type { AuthUser, ConversationSummary, DrawerMode } from "@/types/api";
 
 interface SidebarProps {
   token: string;
@@ -11,12 +12,30 @@ interface SidebarProps {
   conversations: ConversationSummary[];
   selectedConversationId: number | null;
   loading: boolean;
+  drawerMode: DrawerMode;
+  drawerConversation: ConversationSummary | null;
+  inlineDrawer: boolean;
   onLogout: () => void;
   onRefresh: () => Promise<void>;
   onSelectConversation: (conversationId: number) => void;
   onOpenCreate: () => void;
   onOpenJoin: () => void;
   onOpenProfile: () => void;
+  onOpenConversationSettings: (conversationId: number) => void;
+  onCloseDrawer: () => void;
+  onCreateConversation: (title: string) => Promise<void>;
+  onJoinConversation: (inviteCode: string) => Promise<void>;
+  onUpdateProfile: (payload: {
+    displayName: string;
+    username: string;
+    avatar?: File | null;
+    removeAvatar?: boolean;
+  }) => Promise<void>;
+  onUpdateConversation: (
+    conversationId: number,
+    payload: { title: string; avatar?: File | null; removeAvatar?: boolean; muted?: boolean },
+  ) => Promise<void>;
+  onDeleteConversation: (conversationId: number) => Promise<void>;
 }
 
 export function Sidebar({
@@ -25,15 +44,27 @@ export function Sidebar({
   conversations,
   selectedConversationId,
   loading,
+  drawerMode,
+  drawerConversation,
+  inlineDrawer,
   onLogout,
   onRefresh,
   onSelectConversation,
   onOpenCreate,
   onOpenJoin,
   onOpenProfile,
+  onOpenConversationSettings,
+  onCloseDrawer,
+  onCreateConversation,
+  onJoinConversation,
+  onUpdateProfile,
+  onUpdateConversation,
+  onDeleteConversation,
 }: SidebarProps) {
+  const drawerOpen = inlineDrawer && drawerMode !== null;
+
   return (
-    <aside className={styles.sidebar}>
+    <aside className={styles.sidebar} data-drawer-open={drawerOpen}>
       <section className={styles.panel}>
         <div className={styles.head}>
           <div>
@@ -68,6 +99,24 @@ export function Sidebar({
         </div>
       </section>
 
+      {inlineDrawer && drawerMode && (
+        <section className={`${styles.panel} ${styles.drawerPanel}`}>
+          <DrawerPanel
+            open={Boolean(drawerMode)}
+            inline
+            mode={drawerMode}
+            me={me}
+            conversation={drawerConversation}
+            onClose={onCloseDrawer}
+            onCreateConversation={onCreateConversation}
+            onJoinConversation={onJoinConversation}
+            onUpdateProfile={onUpdateProfile}
+            onUpdateConversation={onUpdateConversation}
+            onDeleteConversation={onDeleteConversation}
+          />
+        </section>
+      )}
+
       <section className={`${styles.panel} ${styles.listPanel}`}>
         <div className={styles.panelHead}>
           <div>
@@ -81,24 +130,37 @@ export function Sidebar({
 
         <div className={styles.list}>
           {conversations.map((conversation) => (
-            <button
+            <div
               key={conversation.id}
-              type="button"
               className={`${styles.row} ${conversation.id === selectedConversationId ? styles.active : ""}`}
-              onClick={() => onSelectConversation(conversation.id)}
             >
-              <Avatar token={token} name={conversation.title} src={conversation.avatarUrl} size="md" />
-              <div className={styles.rowCopy}>
-                <div className={styles.rowTop}>
-                  <strong>{conversation.title}</strong>
-                  <span>{formatClock(conversation.lastMessageCreatedAt || conversation.createdAt)}</span>
+              <button type="button" className={styles.rowMain} onClick={() => onSelectConversation(conversation.id)}>
+                <Avatar token={token} name={conversation.title} src={conversation.avatarUrl} size="md" />
+                <div className={styles.rowCopy}>
+                  <div className={styles.rowTop}>
+                    <strong>{conversation.title}</strong>
+                    <span>{formatClock(conversation.lastMessageCreatedAt || conversation.createdAt)}</span>
+                  </div>
+                  <div className={styles.rowBottom}>
+                    <span>{conversation.lastMessagePreview || "Новый чат без сообщений"}</span>
+                    {conversation.unreadCount > 0 && <span className={styles.badge}>{conversation.unreadCount}</span>}
+                  </div>
+                  <div className={styles.rowMeta}>
+                    <span className={styles.role}>{conversation.membershipRole}</span>
+                  </div>
                 </div>
-                <div className={styles.rowBottom}>
-                  <span>{conversation.lastMessagePreview || "Новый чат без сообщений"}</span>
-                  {conversation.unreadCount > 0 && <span className={styles.badge}>{conversation.unreadCount}</span>}
-                </div>
+              </button>
+              <div className={styles.rowActions}>
+                <button
+                  type="button"
+                  className={styles.menuButton}
+                  aria-label={`Открыть настройки чата ${conversation.title}`}
+                  onClick={() => onOpenConversationSettings(conversation.id)}
+                >
+                  …
+                </button>
               </div>
-            </button>
+            </div>
           ))}
 
           {!loading && conversations.length === 0 && (

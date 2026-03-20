@@ -1,23 +1,39 @@
 .page {
   position: relative;
   isolation: isolate;
-  min-height: 100vh;
+  height: 100dvh;
   max-width: 1560px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 10px;
+  overflow: hidden;
 }
 
 .layout {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);
-  gap: 20px;
-  min-height: calc(100vh - 40px);
+  gap: 0;
+  height: 100%;
+  min-height: 0;
+  border-radius: 28px;
+  overflow: hidden;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.004)
+    ),
+    var(--panel);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--shadow-lg);
 }
 
 .workspace {
+  position: relative;
+  z-index: 1;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 20px;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
 }
 
 .ambientOne,
@@ -36,7 +52,11 @@
   left: -30px;
   width: 220px;
   height: 220px;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.08), transparent 72%);
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.08),
+    transparent 72%
+  );
 }
 
 .ambientTwo {
@@ -44,7 +64,11 @@
   top: 100px;
   width: 280px;
   height: 280px;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.05), transparent 74%);
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.05),
+    transparent 74%
+  );
 }
 
 .ambientThree {
@@ -56,7 +80,27 @@
 }
 
 @media (max-width: 1100px) {
+  .page {
+    padding: 0;
+  }
+
   .layout {
     grid-template-columns: 1fr;
+    border-radius: 0;
+    border: 0;
+    box-shadow: none;
+    background: #17212b;
+  }
+
+  .layout[data-mobile-screen="conversation"] > :first-child {
+    display: none;
+  }
+
+  .layout[data-mobile-screen="sidebar"] .workspace {
+    display: none;
+  }
+
+  .workspace {
+    height: 100dvh;
   }
 }

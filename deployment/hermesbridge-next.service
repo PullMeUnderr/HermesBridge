@@ -1,0 +1,19 @@
+[Unit]
+Description=HermesBridge Next.js frontend
+After=network.target hermesbridge.service
+Requires=hermesbridge.service
+
+[Service]
+Type=simple
+User=hermes
+WorkingDirectory=/opt/hermesbridge-frontend/current
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=0.0.0.0
+Environment=BACKEND_ORIGIN=http://127.0.0.1:8080
+ExecStart=/opt/node-v20.18.3-linux-x64/bin/node /opt/hermesbridge-frontend/current/server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,68 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 60;
+}
+
+.dismiss {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(4, 8, 14, 0.82);
+}
+
+.shell {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 1200px);
+  display: grid;
+  gap: 14px;
+}
+
+.image {
+  width: 100%;
+  max-height: 82vh;
+  object-fit: contain;
+  border-radius: 20px;
+}
+
+.close,
+.prev,
+.next {
+  position: absolute;
+  top: 16px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 14, 20, 0.8);
+  color: white;
+}
+
+.close {
+  right: 16px;
+}
+
+.prev,
+.next {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.prev {
+  left: 16px;
+}
+
+.next {
+  right: 16px;
+}
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #dbe5f5;
+}

@@ -20,9 +20,11 @@
 - `install-vps.sh` — ставит `OpenJDK 21` и `Postgres`, создает пользователя и каталоги
 - `hermesbridge.env.example` — шаблон env-файла
 - `hermesbridge.service` — systemd unit
+- `hermesbridge-next.service` — production Next.js frontend unit
+- `hermesbridge-next-test.service` — отдельный test-инстанс Next.js
 - `hermesbridge-ngrok.service` — optional ngrok HTTPS tunnel
 - `hermesbridge-ngrok.sh` — helper script for ngrok
-- `deploy-vps.sh` — сборка и выкладка jar по SSH
+- `deploy-vps.sh` — сборка и выкладка jar + Next standalone по SSH
 - `hermesbridge-postgres-backup.sh` — backup локальной базы
 - `hermesbridge-postgres-backup.service` — systemd service для backup
 - `hermesbridge-postgres-backup.timer` — ежедневный timer для backup
@@ -36,11 +38,27 @@
    - заполнить `APP_DATASOURCE_PASSWORD` и Telegram-секреты
 3. На сервере:
    - положить `hermesbridge.service` в `/etc/systemd/system/`
+   - положить `hermesbridge-next.service` в `/etc/systemd/system/`
 4. С локальной машины:
    - запустить `deploy-vps.sh root@SERVER_IP`
 5. На сервере:
    - проверить `systemctl status hermesbridge`
-   - открыть `http://SERVER_IP:8080`
+   - проверить `systemctl status hermesbridge-next`
+   - открыть фронт на `http://SERVER_IP:3000` или через reverse proxy на домене
+
+## Frontend Production Model
+
+Новый production frontend больше не должен браться из legacy-папки `src/main/resources/static`.
+
+Текущая схема для ветки `next-js` и будущего `main`:
+
+- Spring Boot backend работает как раньше
+- Next.js frontend собирается из `frontend/`
+- deploy-script отправляет standalone runtime в `/opt/hermesbridge-frontend/current`
+- `hermesbridge-next.service` поднимает `server.js` на `3000/tcp`
+- frontend ходит в backend через `BACKEND_ORIGIN=http://127.0.0.1:8080`
+
+То есть legacy static UI остаётся в репозитории только как fallback/история, но не как production entrypoint.
 
 ## Временный HTTPS через ngrok
 

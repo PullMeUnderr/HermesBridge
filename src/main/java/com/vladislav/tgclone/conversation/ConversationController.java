@@ -189,9 +189,10 @@ public class ConversationController {
         @RequestParam(required = false) String body,
         @RequestParam(required = false) Long replyToMessageId,
         @RequestParam(name = "files", required = false) List<MultipartFile> files,
-        @RequestParam(name = "sendAsVideoNote", defaultValue = "false") boolean sendAsVideoNote
+        @RequestParam(name = "sendAsVideoNote", defaultValue = "false") boolean sendAsVideoNote,
+        @RequestParam(name = "sendAsVoice", defaultValue = "false") boolean sendAsVoice
     ) {
-        List<ConversationAttachmentDraft> attachments = toAttachmentDrafts(files, sendAsVideoNote);
+        List<ConversationAttachmentDraft> attachments = toAttachmentDrafts(files, sendAsVideoNote, sendAsVoice);
         ConversationMessage message = conversationService.createInternalMessage(
             authenticatedUser,
             conversationId,
@@ -300,7 +301,11 @@ public class ConversationController {
         }
     }
 
-    private List<ConversationAttachmentDraft> toAttachmentDrafts(List<MultipartFile> files, boolean sendAsVideoNote) {
+    private List<ConversationAttachmentDraft> toAttachmentDrafts(
+        List<MultipartFile> files,
+        boolean sendAsVideoNote,
+        boolean sendAsVoice
+    ) {
         List<ConversationAttachmentDraft> drafts = new ArrayList<>();
         if (files == null || files.isEmpty()) {
             return drafts;
@@ -324,7 +329,16 @@ public class ConversationController {
             }
         }
 
-        if (sendAsVideoNote && drafts.size() == 1) {
+        if (sendAsVoice && drafts.size() == 1) {
+            ConversationAttachmentDraft draft = drafts.getFirst();
+            drafts.set(0, new ConversationAttachmentDraft(
+                ConversationAttachmentKind.VOICE,
+                draft.originalFilename(),
+                draft.mimeType(),
+                draft.sizeBytes(),
+                draft.content()
+            ));
+        } else if (sendAsVideoNote && drafts.size() == 1) {
             ConversationAttachmentDraft draft = drafts.getFirst();
             if (draft.kind() == ConversationAttachmentKind.VIDEO) {
                 drafts.set(0, new ConversationAttachmentDraft(

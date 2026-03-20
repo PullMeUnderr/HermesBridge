@@ -1,0 +1,281 @@
+.sidebar {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  padding: 24px 20px;
+  background: rgba(34, 45, 60, 0.18);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar[data-drawer-open="true"] {
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.panel {
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+  padding: 12px 12px 18px;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.listPanel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  padding-top: 10px;
+}
+
+.drawerPanel {
+  padding-top: 4px;
+  padding-bottom: 12px;
+  min-width: 0;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.sidebar[data-drawer-open="true"] .drawerPanel {
+  height: 100%;
+  padding-top: 12px;
+  padding-bottom: 16px;
+}
+
+.sidebar[data-drawer-open="true"] .listPanel {
+  display: none;
+}
+
+.head,
+.panelHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.eyebrow,
+.caption {
+  display: inline-block;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-family: var(--font-display);
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.muted {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.userCard {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.userMeta {
+  display: grid;
+  gap: 4px;
+}
+
+.userMeta span {
+  color: var(--muted);
+}
+
+.toolRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.primaryButton,
+.secondaryButton,
+.ghostButton,
+.iconButton {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px 16px;
+  color: var(--text);
+}
+
+.primaryButton {
+  background: linear-gradient(180deg, #7bc3ff, #5aa9f8);
+  color: #07111d;
+  font-weight: 700;
+}
+
+.secondaryButton,
+.ghostButton,
+.iconButton {
+  background: rgba(34, 45, 60, 0.96);
+}
+
+.iconButton {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+}
+
+.list {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+  overscroll-behavior-y: contain;
+}
+
+.row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.035);
+  color: inherit;
+  text-align: left;
+}
+
+.rowMain {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  appearance: none;
+}
+
+.active {
+  border-color: rgba(123, 195, 255, 0.36);
+  background: rgba(113, 184, 255, 0.12);
+}
+
+.rowCopy {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.rowTop,
+.rowBottom {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.rowMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rowTop strong,
+.rowBottom span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowBottom span:first-child,
+.rowTop span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.rowTop strong {
+  font-size: 1rem;
+}
+
+.role {
+  color: #8ec0ff;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+}
+
+.menuButton {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 1.7rem;
+  line-height: 1;
+  appearance: none;
+  padding-bottom: 14px;
+}
+
+.menuButton:hover {
+  background: rgba(255, 255, 255, 0.082);
+  box-shadow:
+    0 0 0 1px rgba(95, 202, 120, 0.18),
+    0 0 18px rgba(95, 202, 120, 0.22);
+}
+
+.badge {
+  min-width: 24px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #7bc3ff;
+  color: #07111d;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+@media (max-width: 1100px) {
+  .sidebar {
+    padding: 18px 16px;
+  }
+
+  .row {
+    padding: 12px;
+  }
+
+  .menuButton {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+.empty {
+  display: grid;
+  gap: 6px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.empty span {
+  color: var(--muted);
+}

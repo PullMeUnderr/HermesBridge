@@ -5,17 +5,22 @@ APP_USER="${APP_USER:-hermes}"
 APP_GROUP="${APP_GROUP:-$APP_USER}"
 APP_HOME="${APP_HOME:-/opt/hermesbridge}"
 APP_CURRENT_DIR="${APP_CURRENT_DIR:-$APP_HOME/current}"
+FRONTEND_HOME="${FRONTEND_HOME:-/opt/hermesbridge-frontend}"
+FRONTEND_CURRENT_DIR="${FRONTEND_CURRENT_DIR:-$FRONTEND_HOME/current}"
 APP_DATA_DIR="${APP_DATA_DIR:-/var/lib/hermesbridge}"
 APP_LOG_DIR="${APP_LOG_DIR:-/var/log/hermesbridge}"
 APP_ENV_DIR="${APP_ENV_DIR:-/etc/hermesbridge}"
 DB_NAME="${DB_NAME:-hermesbridge}"
 DB_USER="${DB_USER:-hermesbridge}"
 DB_PASSWORD="${DB_PASSWORD:-change_me}"
+NODE_VERSION="${NODE_VERSION:-20.18.3}"
+NODE_DIST="node-v${NODE_VERSION}-linux-x64"
+NODE_INSTALL_DIR="/opt/${NODE_DIST}"
 
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y openjdk-21-jre-headless postgresql postgresql-contrib
+apt-get install -y openjdk-21-jre-headless postgresql postgresql-contrib curl xz-utils
 
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "$APP_HOME" --shell /usr/sbin/nologin "$APP_USER"
@@ -23,10 +28,18 @@ fi
 
 install -d -m 755 -o "$APP_USER" -g "$APP_GROUP" "$APP_HOME"
 install -d -m 755 -o "$APP_USER" -g "$APP_GROUP" "$APP_CURRENT_DIR"
+install -d -m 755 -o "$APP_USER" -g "$APP_GROUP" "$FRONTEND_HOME"
+install -d -m 755 -o "$APP_USER" -g "$APP_GROUP" "$FRONTEND_CURRENT_DIR"
 install -d -m 755 -o "$APP_USER" -g "$APP_GROUP" "$APP_DATA_DIR"
 install -d -m 755 -o "$APP_USER" -g "$APP_GROUP" "$APP_DATA_DIR/media"
 install -d -m 755 -o "$APP_USER" -g "$APP_GROUP" "$APP_LOG_DIR"
 install -d -m 755 -o root -g root "$APP_ENV_DIR"
+
+if [[ ! -x "${NODE_INSTALL_DIR}/bin/node" ]]; then
+  curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/${NODE_DIST}.tar.xz" -o "/tmp/${NODE_DIST}.tar.xz"
+  tar -xJf "/tmp/${NODE_DIST}.tar.xz" -C /opt
+  rm -f "/tmp/${NODE_DIST}.tar.xz"
+fi
 
 systemctl enable postgresql
 systemctl start postgresql
@@ -41,5 +54,7 @@ echo "Base packages and directories are ready."
 echo "Next:"
 echo "1. Copy deployment/hermesbridge.env.example to ${APP_ENV_DIR}/hermes.env and fill secrets."
 echo "2. Copy deployment/hermesbridge.service to /etc/systemd/system/hermesbridge.service"
-echo "3. Deploy the jar to ${APP_CURRENT_DIR}/hermesbridge.jar"
-echo "4. Run: systemctl daemon-reload && systemctl enable --now hermesbridge"
+echo "3. Copy deployment/hermesbridge-next.service to /etc/systemd/system/hermesbridge-next.service"
+echo "4. Deploy the jar to ${APP_CURRENT_DIR}/hermesbridge.jar"
+echo "5. Deploy the Next standalone runtime to ${FRONTEND_CURRENT_DIR}"
+echo "6. Run: systemctl daemon-reload && systemctl enable --now hermesbridge hermesbridge-next"

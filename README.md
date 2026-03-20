@@ -10,7 +10,7 @@ The project lets you:
 - exchange text, photos, videos, voice messages, files, replies, mentions, and video notes
 - use a web client and install it as a PWA on mobile
 
-The current stack is Java/Spring Boot + PostgreSQL + Telegram Bot API + a static web client.
+The current stack is Java/Spring Boot + PostgreSQL + Telegram Bot API + a Next.js frontend.
 
 ## What HermesBridge Is
 
@@ -137,7 +137,8 @@ Top-level structure:
 - [`src/main/java/com/vladislav/tgclone/media`](./src/main/java/com/vladislav/tgclone/media) — local and S3-compatible media storage
 - [`src/main/java/com/vladislav/tgclone/security`](./src/main/java/com/vladislav/tgclone/security) — bearer auth
 - [`src/main/java/com/vladislav/tgclone/telegram`](./src/main/java/com/vladislav/tgclone/telegram) — polling, bot client, dialog state
-- [`src/main/resources/static`](./src/main/resources/static) — web UI / PWA
+- [`frontend`](./frontend) — React + Next.js web UI with SCSS modules
+- [`src/main/resources/static`](./src/main/resources/static) — legacy static web UI / PWA
 - [`deployment`](./deployment) — install, deploy, service, backup, tunnel scripts
 - [`docs`](./docs) — self-hosting documentation
 
@@ -150,6 +151,23 @@ Top-level structure:
   - `APP_MEDIA_MAX_FILE_SIZE_BYTES`
   - `APP_MULTIPART_MAX_FILE_SIZE`
   - `APP_MULTIPART_MAX_REQUEST_SIZE`
+
+## Frontend Development
+
+The frontend was moved to a standalone Next.js app in [`frontend`](./frontend).
+
+Run it locally:
+
+```bash
+cd frontend
+npm install
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8080 npm run dev
+```
+
+Open:
+
+- Next.js frontend: [http://localhost:3000](http://localhost:3000)
+- Spring Boot API: [http://localhost:8080](http://localhost:8080)
 
 ## Server Recommendations
 
@@ -172,6 +190,7 @@ If you keep PostgreSQL, Java, media, and HTTPS on the same host, the second opti
 The project already includes a working self-hosted path:
 
 - Spring Boot as a `systemd` service
+- Next.js frontend as a separate `systemd` service built from [`frontend`](./frontend)
 - local PostgreSQL
 - optional ngrok HTTPS tunnel
 - optional Backblaze B2 media storage

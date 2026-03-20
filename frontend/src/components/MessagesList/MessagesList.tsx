@@ -108,7 +108,7 @@ function VideoNoteCard({ token, attachment }: { token: string; attachment: Conve
               playsInline
               preload="metadata"
               onLoadedData={(event) => {
-                event.currentTarget.currentTime = 0.05;
+                event.currentTarget.currentTime = 0.1;
               }}
               onSeeked={() => capturePoster()}
               onPlay={() => setPlaying(true)}

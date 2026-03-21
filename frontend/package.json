@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:sidebar": "playwright test tests/sidebar-layout.spec.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -16,9 +17,11 @@
     "sass": "^1.86.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/node": "^22.14.0",
     "@types/react": "^19.0.12",
     "@types/react-dom": "^19.0.5",
+    "nanoid": "^3.3.11",
     "typescript": "^5.8.2"
   }
 }

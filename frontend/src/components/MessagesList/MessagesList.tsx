@@ -429,9 +429,10 @@ export function MessagesList({ token, me, conversationId, messages, loading, onR
             className={`${styles.message} ${own ? styles.own : ""} ${mediaOnly ? styles.mediaOnlyRow : ""}`}
           >
             <Avatar
+              className={styles.avatarSlot}
               token={token}
               name={message.authorDisplayName}
-              src={message.authorUserId && !own ? `/api/auth/users/${message.authorUserId}/avatar` : undefined}
+              src={own ? me.avatarUrl : (message.authorUserId ? `/api/auth/users/${message.authorUserId}/avatar` : undefined)}
               size="sm"
             />
             <div className={`${styles.bubble} ${mediaOnly ? styles.mediaOnlyBubble : ""}`}>

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.scss";
+import { ServiceWorkerReset } from "@/components/AppShell/ServiceWorkerReset";
 
 export const metadata: Metadata = {
   title: "Hermes Messenger",
@@ -18,7 +19,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru">
-      <body>{children}</body>
+      <body>
+        <ServiceWorkerReset />
+        {children}
+      </body>
     </html>
   );
 }

@@ -29,6 +29,11 @@
   align-items: end;
 }
 
+.avatarSlot {
+  order: 0;
+  justify-self: start;
+}
+
 .bubble {
   order: 1;
   justify-self: start;
@@ -45,13 +50,17 @@
 }
 
 .own > :first-child {
-  order: 0;
+  order: 1;
 }
 
 .own .bubble {
-  order: 1;
+  order: 0;
   justify-self: end;
   background: linear-gradient(180deg, rgba(22, 24, 30, 0.98), rgba(14, 16, 22, 0.98));
+}
+
+.own .avatarSlot {
+  justify-self: end;
 }
 
 .mediaOnlyRow {

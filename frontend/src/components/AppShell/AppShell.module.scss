@@ -10,7 +10,7 @@
 
 .layout {
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: clamp(300px, 28vw, 360px) minmax(0, 1fr);
   gap: 0;
   height: 100%;
   min-height: 0;
@@ -77,6 +77,12 @@
   width: 220px;
   height: 220px;
   background: radial-gradient(circle, rgba(255, 71, 71, 0.06), transparent 74%);
+}
+
+@media (max-width: 1380px) {
+  .layout {
+    grid-template-columns: clamp(280px, 31vw, 332px) minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 1100px) {

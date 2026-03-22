@@ -33,6 +33,7 @@ const conversations: ConversationSummary[] = [
     lastMessagePreview: "дап дап",
     lastMessageCreatedAt: "2026-03-21T11:29:00Z",
     unreadCount: 0,
+    hasUnreadMention: false,
     muted: false,
   },
   {
@@ -45,6 +46,7 @@ const conversations: ConversationSummary[] = [
     lastMessagePreview: "Видео",
     lastMessageCreatedAt: "2026-03-21T10:38:00Z",
     unreadCount: 0,
+    hasUnreadMention: false,
     muted: false,
   },
   {
@@ -57,6 +59,7 @@ const conversations: ConversationSummary[] = [
     lastMessagePreview: "доброй ночи",
     lastMessageCreatedAt: "2026-03-20T19:56:00Z",
     unreadCount: 0,
+    hasUnreadMention: false,
     muted: false,
   },
 ];
@@ -78,6 +81,8 @@ export default function ShellLabPage() {
       drawerConversation={null}
       messages={messages}
       members={members}
+      readReceipts={[]}
+      typingNames={[]}
       loadingConversations={false}
       loadingConversationData={false}
       onLogout={() => {}}
@@ -99,6 +104,7 @@ export default function ShellLabPage() {
         sendAsVideoNote: boolean;
       }) => {}}
       onReply={noopReply}
+      onTypingStateChange={() => {}}
       onOpenPhotoViewer={() => {}}
     />
   );

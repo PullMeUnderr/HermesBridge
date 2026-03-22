@@ -41,17 +41,20 @@ public class ConversationController {
     private final MessageRelayService messageRelayService;
     private final ConversationAttachmentService conversationAttachmentService;
     private final UserAccountService userAccountService;
+    private final ConversationEventPublisher conversationEventPublisher;
 
     public ConversationController(
         ConversationService conversationService,
         MessageRelayService messageRelayService,
         ConversationAttachmentService conversationAttachmentService,
-        UserAccountService userAccountService
+        UserAccountService userAccountService,
+        ConversationEventPublisher conversationEventPublisher
     ) {
         this.conversationService = conversationService;
         this.messageRelayService = messageRelayService;
         this.conversationAttachmentService = conversationAttachmentService;
         this.userAccountService = userAccountService;
+        this.conversationEventPublisher = conversationEventPublisher;
     }
 
     @PostMapping
@@ -61,7 +64,7 @@ public class ConversationController {
     ) {
         ConversationMember membership = conversationService.createConversation(authenticatedUser, request.title());
         return ResponseEntity.status(HttpStatus.CREATED).body(
-            toConversationResponse(new ConversationService.ConversationSummary(membership, null, null, 0))
+            toConversationResponse(new ConversationService.ConversationSummary(membership, null, null, 0, false))
         );
     }
 
@@ -82,7 +85,8 @@ public class ConversationController {
                 conversationService.requireMembership(authenticatedUser, conversationId),
                 null,
                 null,
-                0
+                0,
+                false
             )
         );
     }
@@ -103,7 +107,7 @@ public class ConversationController {
             avatarUpload,
             removeAvatar
         );
-        return toConversationResponse(new ConversationService.ConversationSummary(membership, null, null, 0));
+        return toConversationResponse(new ConversationService.ConversationSummary(membership, null, null, 0, false));
     }
 
     @DeleteMapping("/{conversationId}")
@@ -157,7 +161,11 @@ public class ConversationController {
         @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
         @PathVariable Long conversationId
     ) {
-        conversationService.markConversationRead(authenticatedUser, conversationId);
+        ConversationReadPayload payload = conversationService.markConversationRead(authenticatedUser, conversationId);
+        if (payload != null) {
+            conversationEventPublisher.publishRead(payload);
+        }
+        conversationEventPublisher.publishConversationSummaries(conversationId);
         return ResponseEntity.noContent().build();
     }
 
@@ -240,7 +248,7 @@ public class ConversationController {
             conversationId,
             request.muted()
         );
-        return toConversationResponse(new ConversationService.ConversationSummary(membership, null, null, 0));
+        return toConversationResponse(new ConversationService.ConversationSummary(membership, null, null, 0, false));
     }
 
     @PostMapping("/{conversationId}/invites")
@@ -281,6 +289,7 @@ public class ConversationController {
             summary.lastMessagePreview(),
             summary.lastMessageCreatedAt(),
             summary.unreadCount(),
+            summary.hasUnreadMention(),
             membership.isMuted()
         );
     }
@@ -456,6 +465,7 @@ record ConversationResponse(
     String lastMessagePreview,
     Instant lastMessageCreatedAt,
     long unreadCount,
+    boolean hasUnreadMention,
     boolean muted
 ) {
 }
@@ -569,6 +579,7 @@ record ConversationMemberResponse(
     String avatarUrl,
     String role,
     Instant joinedAt,
+    Instant lastReadMessageCreatedAt,
     boolean telegramLinked,
     String telegramUsername,
     boolean online,
@@ -588,6 +599,7 @@ record ConversationMemberResponse(
             userAccountService.buildAvatarUrl(member.getUserAccount()),
             member.getRole().name(),
             member.getJoinedAt(),
+            member.getLastReadMessageCreatedAt(),
             telegramIdentity != null,
             telegramIdentity == null ? null : telegramIdentity.getTelegramUsername(),
             online,

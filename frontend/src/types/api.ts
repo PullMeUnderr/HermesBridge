@@ -23,6 +23,7 @@ export interface ConversationSummary {
   lastMessagePreview: string | null;
   lastMessageCreatedAt: string | null;
   unreadCount: number;
+  hasUnreadMention: boolean;
   muted: boolean;
 }
 
@@ -63,6 +64,43 @@ export interface ConversationMessage {
   createdAt: string;
 }
 
+export interface ConversationSocketEvent<TPayload = unknown> {
+  eventId: string;
+  type: string;
+  conversationId: number;
+  occurredAt: string;
+  payload: TPayload;
+}
+
+export interface ConversationSocketSummaryPayload {
+  id: number;
+  tenantKey: string;
+  title: string;
+  avatarUrl: string | null;
+  membershipRole: string;
+  createdAt: string;
+  lastMessagePreview: string | null;
+  lastMessageCreatedAt: string | null;
+  unreadCount: number;
+  hasUnreadMention: boolean;
+  muted: boolean;
+}
+
+export interface ConversationTypingPayload {
+  conversationId: number;
+  userId: number;
+  displayName: string;
+  active: boolean;
+}
+
+export interface ConversationReadPayload {
+  conversationId: number;
+  userId: number;
+  displayName: string;
+  readAt: string;
+}
+
+
 export interface ConversationMember {
   userId: number;
   username: string;
@@ -70,6 +108,7 @@ export interface ConversationMember {
   avatarUrl: string | null;
   role: string;
   joinedAt: string;
+  lastReadMessageCreatedAt: string | null;
   telegramLinked: boolean;
   telegramUsername: string | null;
   online: boolean;

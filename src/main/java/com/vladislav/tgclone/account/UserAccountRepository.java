@@ -9,5 +9,7 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
 
     boolean existsByUsernameAndIdNot(String username, Long id);
 
+    Optional<UserAccount> findByUsername(String username);
+
     Optional<UserAccount> findByIdAndActiveTrue(Long id);
 }

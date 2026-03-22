@@ -235,6 +235,13 @@ public class ConversationService {
     }
 
     @Transactional(readOnly = true)
+    public List<ConversationSummary> listConversationSummariesForConversation(Long conversationId) {
+        return conversationMemberRepository.findAllByConversation_IdOrderByJoinedAtAsc(conversationId).stream()
+            .map(membership -> summarizeConversation(membership, membership.getUserAccount().getId()))
+            .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<ConversationMessage> listMessages(AuthenticatedUser authenticatedUser, Long conversationId) {
         requireMembership(authenticatedUser, conversationId);
         List<ConversationMessage> messages = conversationMessageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversationId);
@@ -389,15 +396,21 @@ public class ConversationService {
     }
 
     @Transactional
-    public void markConversationRead(AuthenticatedUser authenticatedUser, Long conversationId) {
-        requireMembership(authenticatedUser, conversationId);
+    public ConversationReadPayload markConversationRead(AuthenticatedUser authenticatedUser, Long conversationId) {
+        ConversationMember membership = requireMembership(authenticatedUser, conversationId);
         Instant latestTimestamp = conversationMessageRepository.findTopByConversation_IdOrderByCreatedAtDescIdDesc(conversationId)
             .map(ConversationMessage::getCreatedAt)
             .orElse(null);
         if (latestTimestamp == null) {
-            return;
+            return null;
         }
         conversationMemberRepository.markReadUpTo(conversationId, authenticatedUser.userId(), latestTimestamp);
+        return new ConversationReadPayload(
+            conversationId,
+            authenticatedUser.userId(),
+            membership.getUserAccount().getDisplayName(),
+            latestTimestamp
+        );
     }
 
     @Transactional
@@ -644,8 +657,35 @@ public class ConversationService {
             membership,
             summarizeConversationMessage(latestMessage),
             latestMessage == null ? null : latestMessage.getCreatedAt(),
-            unreadCount
+            unreadCount,
+            hasUnreadMention(conversation.getId(), currentUserId, membership)
         );
+    }
+
+    private boolean hasUnreadMention(Long conversationId, Long currentUserId, ConversationMember membership) {
+        String username = membership.getUserAccount().getUsername();
+        if (username == null || username.isBlank()) {
+            return false;
+        }
+
+        Instant lastReadMessageCreatedAt = membership.getLastReadMessageCreatedAt();
+        List<ConversationMessage> messages = conversationMessageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversationId);
+        String needle = "@" + username.trim().toLowerCase(Locale.ROOT);
+
+        for (ConversationMessage message : messages) {
+            if (message.getAuthorUser() != null && currentUserId.equals(message.getAuthorUser().getId())) {
+                continue;
+            }
+            if (lastReadMessageCreatedAt != null && !message.getCreatedAt().isAfter(lastReadMessageCreatedAt)) {
+                continue;
+            }
+            String body = normalizeNullable(message.getBody());
+            if (body != null && body.toLowerCase(Locale.ROOT).contains(needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private String summarizeConversationMessage(ConversationMessage latestMessage) {
@@ -722,7 +762,8 @@ public class ConversationService {
         ConversationMember membership,
         String lastMessagePreview,
         Instant lastMessageCreatedAt,
-        long unreadCount
+        long unreadCount,
+        boolean hasUnreadMention
     ) {
     }
 }

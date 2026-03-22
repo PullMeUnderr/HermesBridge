@@ -42,6 +42,9 @@ app:
   auth:
     default-tenant-key: ${APP_DEFAULT_TENANT_KEY:main}
     api-token-ttl-days: ${APP_API_TOKEN_TTL_DAYS:365}
+    master-token: ${APP_AUTH_MASTER_TOKEN:}
+    master-token-username: ${APP_AUTH_MASTER_TOKEN_USERNAME:local_admin}
+    master-token-display-name: ${APP_AUTH_MASTER_TOKEN_DISPLAY_NAME:Local Admin}
   conversations:
     invite-ttl-hours: ${APP_CONVERSATIONS_INVITE_TTL_HOURS:168}
   media:

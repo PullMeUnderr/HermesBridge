@@ -8,19 +8,11 @@ import com.vladislav.tgclone.conversation.ConversationMentionService;
 import com.vladislav.tgclone.conversation.ConversationMessage;
 import com.vladislav.tgclone.conversation.ConversationMessageRepository;
 import com.vladislav.tgclone.conversation.ConversationService;
-import java.time.Clock;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class MessageRelayService {
-
-    private static final Logger log = LoggerFactory.getLogger(MessageRelayService.class);
 
     private final TransportBindingRepository transportBindingRepository;
     private final ConversationMessageRepository conversationMessageRepository;
@@ -29,8 +21,7 @@ public class MessageRelayService {
     private final ConversationEventPublisher conversationEventPublisher;
     private final ConversationMentionService conversationMentionService;
     private final UserAccountService userAccountService;
-    private final Map<BridgeTransport, DeliveryGateway> deliveryGateways;
-    private final Clock clock;
+    private final AsyncMessageFanOutService asyncMessageFanOutService;
 
     public MessageRelayService(
         TransportBindingRepository transportBindingRepository,
@@ -40,8 +31,7 @@ public class MessageRelayService {
         ConversationEventPublisher conversationEventPublisher,
         ConversationMentionService conversationMentionService,
         UserAccountService userAccountService,
-        List<DeliveryGateway> deliveryGateways,
-        Clock clock
+        AsyncMessageFanOutService asyncMessageFanOutService
     ) {
         this.transportBindingRepository = transportBindingRepository;
         this.conversationMessageRepository = conversationMessageRepository;
@@ -50,14 +40,12 @@ public class MessageRelayService {
         this.conversationEventPublisher = conversationEventPublisher;
         this.conversationMentionService = conversationMentionService;
         this.userAccountService = userAccountService;
-        this.deliveryGateways = deliveryGateways.stream()
-            .collect(Collectors.toMap(DeliveryGateway::transport, Function.identity()));
-        this.clock = clock;
+        this.asyncMessageFanOutService = asyncMessageFanOutService;
     }
 
     public void relayInternalMessage(ConversationMessage message) {
         conversationEventPublisher.publish(message);
-        fanOutToExternalBindings(message, null);
+        asyncMessageFanOutService.fanOut(message.getId(), null);
     }
 
     public void processTelegramInbound(TelegramInboundEnvelope envelope) {
@@ -99,7 +87,7 @@ public class MessageRelayService {
         );
 
         conversationEventPublisher.publish(savedMessage);
-        fanOutToExternalBindings(savedMessage, sourceBinding.getId());
+        asyncMessageFanOutService.fanOut(savedMessage.getId(), sourceBinding.getId());
     }
 
     private ConversationMessage resolveTelegramReplyTarget(TransportBinding sourceBinding, String replyToExternalMessageId) {
@@ -119,50 +107,5 @@ public class MessageRelayService {
                 )
                 .map(DeliveryRecord::getConversationMessage))
             .orElse(null);
-    }
-
-    private void fanOutToExternalBindings(ConversationMessage message, Long excludedBindingId) {
-        List<TransportBinding> bindings = transportBindingRepository
-            .findAllByConversation_IdAndActiveTrue(message.getConversation().getId());
-
-        for (TransportBinding binding : bindings) {
-            if (excludedBindingId != null && excludedBindingId.equals(binding.getId())) {
-                continue;
-            }
-
-            if (deliveryRecordRepository.existsByConversationMessage_IdAndTargetTransportAndTargetChatId(
-                message.getId(),
-                binding.getTransport(),
-                binding.getExternalChatId()
-            )) {
-                continue;
-            }
-
-            DeliveryGateway gateway = deliveryGateways.get(binding.getTransport());
-            if (gateway == null) {
-                log.warn("No delivery gateway configured for transport {}", binding.getTransport());
-                continue;
-            }
-
-            try {
-                String targetMessageId = gateway.deliver(binding, message);
-                DeliveryRecord record = new DeliveryRecord(
-                    message,
-                    binding.getTransport(),
-                    binding.getExternalChatId(),
-                    targetMessageId,
-                    clock.instant()
-                );
-                deliveryRecordRepository.save(record);
-            } catch (Exception ex) {
-                log.warn(
-                    "Failed to deliver message {} to {}:{} - {}",
-                    message.getId(),
-                    binding.getTransport(),
-                    binding.getExternalChatId(),
-                    ex.getMessage()
-                );
-            }
-        }
     }
 }

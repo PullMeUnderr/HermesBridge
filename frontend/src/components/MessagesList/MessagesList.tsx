@@ -11,18 +11,26 @@ import { fetchProtectedBlobUrl } from "@/lib/api";
 import {
   formatBytes,
   formatClock,
+  formatTimestamp,
   isAudioAttachment,
   isImageAttachment,
   isVideoAttachment,
   isVideoNoteAttachment,
 } from "@/lib/format";
-import type { AuthUser, ConversationAttachment, ConversationMessage } from "@/types/api";
+import type {
+  AuthUser,
+  ConversationAttachment,
+  ConversationMessage,
+  ConversationReadPayload,
+} from "@/types/api";
 
 interface MessagesListProps {
   token: string;
   me: AuthUser;
   conversationId: number;
   messages: ConversationMessage[];
+  currentUserLastReadAt: string | null;
+  readReceipts: ConversationReadPayload[];
   loading: boolean;
   onReply: (messageId: number) => void;
   onOpenPhotoViewer: (items: Array<{ src: string; fileName: string }>, activeIndex: number) => void;
@@ -41,12 +49,28 @@ function isOwnMessage(message: ConversationMessage, me: AuthUser) {
   return authorName !== "" && [normalizeIdentity(me.displayName), normalizeIdentity(me.username)].includes(authorName);
 }
 
+function messageMentionsUser(message: ConversationMessage, username: string) {
+  const body = String(message.body ?? "");
+  if (!body || !username) {
+    return false;
+  }
+
+  const mentionPattern = /(^|[^A-Za-z0-9_])@([A-Za-z0-9_]{1,100})/g;
+  for (const match of body.matchAll(mentionPattern)) {
+    const mentionedUsername = (match[2] ?? "").toLowerCase();
+    if (mentionedUsername === username.toLowerCase()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function VideoNoteCard({ token, attachment }: { token: string; attachment: ConversationAttachment }) {
   const { ref, visible } = useLazyVisible<HTMLDivElement>();
   const resolvedSrc = useProtectedObjectUrl(token, attachment.contentUrl, visible);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [posterSrc, setPosterSrc] = useState<string | null>(null);
 
   async function handleDownload() {
     const objectUrl = await fetchProtectedBlobUrl(token, attachment.contentUrl);
@@ -74,52 +98,28 @@ function VideoNoteCard({ token, attachment }: { token: string; attachment: Conve
     video.pause();
   }
 
-  function capturePoster() {
-    const video = videoRef.current;
-    if (!video || posterSrc) {
-      return;
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 480;
-    canvas.height = video.videoHeight || 480;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      return;
-    }
-
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    setPosterSrc(canvas.toDataURL("image/jpeg", 0.82));
-  }
-
   return (
     <div ref={ref} className={styles.videoNoteCard}>
-      <button type="button" className={`${styles.videoNoteShell} ${playing ? styles.videoNoteShellPlaying : ""}`} onClick={() => void togglePlayback()}>
+      <button
+        type="button"
+        className={styles.videoNoteShell}
+        onClick={() => void togglePlayback()}
+        aria-label={playing ? "Остановить кружок" : "Запустить кружок"}
+      >
         {resolvedSrc ? (
-          <>
-            {posterSrc && !playing && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img alt={attachment.fileName} src={posterSrc} className={styles.videoNotePoster} />
-            )}
-            <video
-              ref={videoRef}
-              className={`${styles.videoNote} ${posterSrc && !playing ? styles.videoNoteHidden : ""}`}
-              src={resolvedSrc}
-              playsInline
-              preload="metadata"
-              onLoadedData={(event) => {
-                event.currentTarget.currentTime = 0.05;
-              }}
-              onSeeked={() => capturePoster()}
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onEnded={() => setPlaying(false)}
-            />
-          </>
+          <video
+            ref={videoRef}
+            className={styles.videoNote}
+            src={resolvedSrc}
+            playsInline
+            preload="metadata"
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+          />
         ) : (
           <div className={styles.videoNoteFallback} />
         )}
-        <span className={styles.videoNoteToggle}>{playing ? "||" : ">"}</span>
       </button>
       <div className={styles.videoNoteCaption}>
         <span>{attachment.fileName}</span>
@@ -179,7 +179,9 @@ function VoiceCard({ token, attachment }: { token: string; attachment: Conversat
   return (
     <div ref={ref} className={styles.voiceCard}>
       <button type="button" className={styles.voiceToggle} onClick={() => void togglePlayback()}>
-        {playing ? "||" : ">"}
+        <span className={styles.voiceToggleIcon} aria-hidden="true">
+          {playing ? "||" : "▶"}
+        </span>
       </button>
       <div className={styles.voiceMeta}>
         <strong>Голосовое</strong>
@@ -372,10 +374,26 @@ function renderRichMessageText(body: string, ownUsername: string | null) {
     });
 }
 
-export function MessagesList({ token, me, conversationId, messages, loading, onReply, onOpenPhotoViewer }: MessagesListProps) {
+export function MessagesList({
+  token,
+  me,
+  conversationId,
+  messages,
+  currentUserLastReadAt,
+  readReceipts,
+  loading,
+  onReply,
+  onOpenPhotoViewer,
+}: MessagesListProps) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const wasNearBottomRef = useRef(true);
   const previousConversationIdRef = useRef<number | null>(null);
+  const [readDetails, setReadDetails] = useState<{
+    messageId: number;
+    readers: ConversationReadPayload[];
+    anchorTop: number;
+    anchorLeft: number;
+  } | null>(null);
 
   useEffect(() => {
     const list = listRef.current;
@@ -423,10 +441,19 @@ export function MessagesList({ token, me, conversationId, messages, loading, onR
         const own = isOwnMessage(message, me);
         const transportLabel = message.sourceTransport === "TELEGRAM" ? "TELEGRAM" : "HERMES";
         const mediaOnly = !message.body && Boolean(message.attachments.length);
+        const isUnreadMention =
+          !own &&
+          messageMentionsUser(message, me.username) &&
+          (currentUserLastReadAt == null || message.createdAt > currentUserLastReadAt);
+        const readers = own
+          ? readReceipts.filter((receipt) => receipt.userId !== me.id && receipt.readAt >= message.createdAt)
+          : [];
+        const isRead = own && readers.length > 0;
+        const statusLabel = own ? (isRead ? "Прочитано" : "Отправлено") : null;
         return (
           <article
             key={message.id}
-            className={`${styles.message} ${own ? styles.own : ""} ${mediaOnly ? styles.mediaOnlyRow : ""}`}
+            className={`${styles.message} ${own ? styles.own : ""} ${mediaOnly ? styles.mediaOnlyRow : ""} ${isUnreadMention ? styles.mentionHighlightedMessage : ""}`}
           >
             <Avatar
               className={styles.avatarSlot}
@@ -468,11 +495,76 @@ export function MessagesList({ token, me, conversationId, messages, loading, onR
 
               <span className={`${styles.timestamp} ${message.attachments.length > 0 ? styles.timestampOnMedia : ""}`}>
                 {formatClock(message.createdAt)}
+                {own && (
+                  isRead ? (
+                    <button
+                      type="button"
+                      className={`${styles.deliveryStatus} ${styles.deliveryStatusButton} ${styles.deliveryStatusRead}`}
+                      aria-label="Открыть информацию о прочтении"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setReadDetails({
+                          messageId: message.id,
+                          readers,
+                          anchorTop: rect.top - 8,
+                          anchorLeft: rect.left - 252,
+                        });
+                      }}
+                    >
+                      ✓✓
+                    </button>
+                  ) : (
+                    <span
+                      className={styles.deliveryStatus}
+                      aria-label={statusLabel ?? undefined}
+                      title={statusLabel ?? undefined}
+                    >
+                      ✓
+                    </span>
+                  )
+                )}
               </span>
             </div>
           </article>
         );
       })}
+
+      {readDetails && (
+        <div className={styles.readDetailsOverlay} onClick={() => setReadDetails(null)}>
+          <div
+            className={styles.readDetailsSheet}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Информация о прочтении"
+            style={{
+              top: `${Math.max(12, readDetails.anchorTop)}px`,
+              left: `${Math.max(12, readDetails.anchorLeft)}px`,
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className={styles.readDetailsHead}>
+              <strong>Прочитали сообщение</strong>
+              <button
+                type="button"
+                className={styles.readDetailsClose}
+                onClick={() => setReadDetails(null)}
+                aria-label="Закрыть"
+              >
+                ×
+              </button>
+            </div>
+            <div className={styles.readDetailsList}>
+              {readDetails.readers.map((reader) => (
+                <div key={`${readDetails.messageId}-${reader.userId}`} className={styles.readDetailsRow}>
+                  <strong>{reader.displayName}</strong>
+                  <span>{formatTimestamp(reader.readAt)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

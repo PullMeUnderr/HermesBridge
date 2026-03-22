@@ -77,6 +77,17 @@ function resolveVideoRecordingExtension(mimeType: string) {
   return "webm"
 }
 
+function formatRecordingTimer(startedAt: number | null) {
+  if (!startedAt) {
+    return "00:00"
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+  const minutes = String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")
+  const seconds = String(elapsedSeconds % 60).padStart(2, "0")
+  return `${minutes}:${seconds}`
+}
+
 function PlusIcon() {
   return (
     <svg viewBox='0 0 24 24' focusable='false' aria-hidden='true'>
@@ -127,9 +138,11 @@ function SendIcon() {
 }
 
 interface MessageComposerProps {
+  currentUserId: number
   members: ConversationMember[]
   replyTarget: ConversationMessage | null
   onCancelReply: () => void
+  onTypingStateChange?: (active: boolean) => void
   onSend: (payload: {
     body: string
     attachments: PendingAttachment[]
@@ -138,9 +151,11 @@ interface MessageComposerProps {
 }
 
 export function MessageComposer({
+  currentUserId,
   members,
   replyTarget,
   onCancelReply,
+  onTypingStateChange,
   onSend,
 }: MessageComposerProps) {
   const [body, setBody] = useState("")
@@ -151,6 +166,8 @@ export function MessageComposer({
   const [processingVoice, setProcessingVoice] = useState(false)
   const [recordedVoiceFile, setRecordedVoiceFile] = useState<File | null>(null)
   const [recordedVoiceUrl, setRecordedVoiceUrl] = useState("")
+  const [voiceRecordingStartedAt, setVoiceRecordingStartedAt] = useState<number | null>(null)
+  const [voiceRecordingTick, setVoiceRecordingTick] = useState(0)
   const [recordingVideo, setRecordingVideo] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [recordedVideoFile, setRecordedVideoFile] = useState<File | null>(null)
@@ -166,13 +183,14 @@ export function MessageComposer({
   const videoStreamRef = useRef<MediaStream | null>(null)
   const discardVideoOnStopRef = useRef(false)
   const videoPreviewRef = useRef<HTMLVideoElement | null>(null)
+  const recordedVideoPreviewRef = useRef<HTMLVideoElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const typingActiveRef = useRef(false)
+  const typingKeepAliveRef = useRef<number | null>(null)
+  const [previewVideoPlaying, setPreviewVideoPlaying] = useState(false)
 
   const mentionState = useMemo(() => {
-    const textarea = textareaRef.current
-    const cursor = textarea?.selectionStart ?? body.length
-    const beforeCursor = body.slice(0, cursor)
-    const match = beforeCursor.match(/(?:^|[\s(])@([A-Za-z0-9_]*)$/)
+    const match = body.match(/(?:^|[\s(])@([A-Za-z0-9_]*)$/)
     if (!match) {
       return {
         visible: false,
@@ -185,20 +203,24 @@ export function MessageComposer({
     const suggestions = members
       .filter(
         (member) =>
-          member.username.toLowerCase().includes(query) ||
-          member.displayName.toLowerCase().includes(query),
+          member.userId !== currentUserId &&
+          ((member.username || "").toLowerCase().includes(query) ||
+            (member.displayName || "").toLowerCase().includes(query)),
       )
       .slice(0, 6)
+    const mentionToken = `@${match[1]}`
+    const mentionEnd = body.length
+    const mentionStart = mentionEnd - mentionToken.length
 
     return {
       visible: suggestions.length > 0,
       suggestions,
       range: {
-        start: cursor - query.length - 1,
-        end: cursor,
+        start: mentionStart,
+        end: mentionEnd,
       },
     }
-  }, [body, members])
+  }, [body, currentUserId, members])
 
   useEffect(() => {
     if (!cameraOpen || !videoPreviewRef.current || !videoStreamRef.current) {
@@ -209,6 +231,12 @@ export function MessageComposer({
 
   useEffect(() => {
     return () => {
+      if (typingKeepAliveRef.current !== null) {
+        window.clearTimeout(typingKeepAliveRef.current)
+      }
+      if (typingActiveRef.current) {
+        onTypingStateChange?.(false)
+      }
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop())
       videoStreamRef.current?.getTracks().forEach((track) => track.stop())
       if (recordedVoiceUrl) {
@@ -218,7 +246,40 @@ export function MessageComposer({
         URL.revokeObjectURL(recordedVideoUrl)
       }
     }
-  }, [recordedVideoUrl, recordedVoiceUrl])
+  }, [onTypingStateChange, recordedVideoUrl, recordedVoiceUrl])
+
+  function emitTypingState(active: boolean, force = false) {
+    if (!force && typingActiveRef.current === active) {
+      return
+    }
+    typingActiveRef.current = active
+    onTypingStateChange?.(active)
+  }
+
+  function scheduleTypingKeepAlive() {
+    if (typingKeepAliveRef.current !== null) {
+      window.clearTimeout(typingKeepAliveRef.current)
+    }
+    typingKeepAliveRef.current = window.setTimeout(() => {
+      emitTypingState(false)
+      typingKeepAliveRef.current = null
+    }, 3000)
+  }
+
+  useEffect(() => {
+    const hasText = body.length > 0
+    if (!hasText) {
+      if (typingKeepAliveRef.current !== null) {
+        window.clearTimeout(typingKeepAliveRef.current)
+        typingKeepAliveRef.current = null
+      }
+      emitTypingState(false)
+      return
+    }
+
+    emitTypingState(true, true)
+    scheduleTypingKeepAlive()
+  }, [body, onTypingStateChange])
 
   useEffect(() => {
     if (!replyTarget) {
@@ -228,18 +289,24 @@ export function MessageComposer({
   }, [replyTarget])
 
   const videoRecordingTimer = useMemo(() => {
-    if (!videoRecordingStartedAt) {
-      return "00:00"
+    return formatRecordingTimer(videoRecordingStartedAt)
+  }, [videoRecordingStartedAt, recordingVideo, videoRecordingTick])
+
+  const voiceRecordingTimer = useMemo(() => {
+    return formatRecordingTimer(voiceRecordingStartedAt)
+  }, [voiceRecordingStartedAt, voiceRecordingTick])
+
+  useEffect(() => {
+    if (!recordingVoice || !voiceRecordingStartedAt) {
+      return
     }
 
-    const elapsedSeconds = Math.max(
-      0,
-      Math.floor((Date.now() - videoRecordingStartedAt) / 1000),
-    )
-    const minutes = String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")
-    const seconds = String(elapsedSeconds % 60).padStart(2, "0")
-    return `${minutes}:${seconds}`
-  }, [videoRecordingStartedAt, recordingVideo, videoRecordingTick])
+    const handle = window.setInterval(() => {
+      setVoiceRecordingTick((value) => value + 1)
+    }, 1000)
+
+    return () => window.clearInterval(handle)
+  }, [recordingVoice, voiceRecordingStartedAt])
 
   useEffect(() => {
     if (!recordingVideo || !videoRecordingStartedAt) {
@@ -288,6 +355,7 @@ export function MessageComposer({
       }
       mediaRecorderRef.current?.stop()
       setRecordingVoice(false)
+      setVoiceRecordingStartedAt(null)
       return
     }
 
@@ -339,6 +407,8 @@ export function MessageComposer({
       })
       recorder.start(250)
       setRecordingVoice(true)
+      setVoiceRecordingStartedAt(Date.now())
+      setVoiceRecordingTick(0)
     } catch {
       setProcessingVoice(false)
       setComposerError("Не удалось получить доступ к микрофону.")
@@ -350,6 +420,7 @@ export function MessageComposer({
       setProcessingVoice(false)
       mediaRecorderRef.current?.stop()
       setRecordingVoice(false)
+      setVoiceRecordingStartedAt(null)
       return
     }
 
@@ -358,6 +429,8 @@ export function MessageComposer({
     }
     setRecordedVoiceUrl("")
     setRecordedVoiceFile(null)
+    setVoiceRecordingStartedAt(null)
+    setVoiceRecordingTick(0)
   }
 
   async function openCamera() {
@@ -456,6 +529,7 @@ export function MessageComposer({
       }
       setRecordedVideoUrl("")
       setRecordedVideoFile(null)
+      setPreviewVideoPlaying(false)
     } catch {
       setComposerError("Не удалось отправить кружок.")
     } finally {
@@ -528,6 +602,7 @@ export function MessageComposer({
         const objectUrl = URL.createObjectURL(blob)
         setRecordedVideoUrl(objectUrl)
         setRecordedVideoFile(file)
+        setPreviewVideoPlaying(false)
       })
       recorder.start(250)
       setRecordingVideo(true)
@@ -542,12 +617,12 @@ export function MessageComposer({
       return
     }
     const nextValue = `${body.slice(0, mentionState.range.start)}@${username} ${body.slice(mentionState.range.end)}`
+    const nextCursor = mentionState.range.start + username.length + 2
     setBody(nextValue)
     setMentionIndex(0)
     requestAnimationFrame(() => {
-      const cursor = mentionState.range!.start + username.length + 2
       textareaRef.current?.focus()
-      textareaRef.current?.setSelectionRange(cursor, cursor)
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor)
     })
   }
 
@@ -575,6 +650,11 @@ export function MessageComposer({
     setSubmitting(true)
     try {
       setComposerError("")
+      emitTypingState(false)
+      if (typingKeepAliveRef.current !== null) {
+        window.clearTimeout(typingKeepAliveRef.current)
+        typingKeepAliveRef.current = null
+      }
       await onSend({
         body,
         attachments: nextAttachments,
@@ -590,11 +670,27 @@ export function MessageComposer({
       }
       setRecordedVoiceUrl("")
       setRecordedVoiceFile(null)
+      setVoiceRecordingStartedAt(null)
+      setVoiceRecordingTick(0)
     } catch {
       setComposerError("Не удалось отправить сообщение.")
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function toggleRecordedVideoPreviewPlayback() {
+    const video = recordedVideoPreviewRef.current
+    if (!video) {
+      return
+    }
+
+    if (video.paused || video.ended) {
+      await video.play()
+      return
+    }
+
+    video.pause()
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -762,13 +858,26 @@ export function MessageComposer({
             </div>
           </div>
           <div className={styles.videoNoteShell}>
-            <video
-              className={styles.videoNoteCamera}
-              src={recordedVideoUrl}
-              controls
-              playsInline
-              preload='metadata'
-            />
+            <button
+              type='button'
+              className={styles.videoNotePreviewButton}
+              onClick={() => void toggleRecordedVideoPreviewPlayback()}
+              aria-label={previewVideoPlaying ? "Остановить предпросмотр кружка" : "Запустить предпросмотр кружка"}
+            >
+              <video
+                ref={recordedVideoPreviewRef}
+                className={styles.videoNoteCamera}
+                src={recordedVideoUrl}
+                playsInline
+                preload='metadata'
+                onPlay={() => setPreviewVideoPlaying(true)}
+                onPause={() => setPreviewVideoPlaying(false)}
+                onEnded={() => setPreviewVideoPlaying(false)}
+              />
+              <span className={styles.videoNotePreviewHint}>
+                {previewVideoPlaying ? "Пауза" : "Нажми для просмотра"}
+              </span>
+            </button>
           </div>
         </div>
       )}
@@ -791,6 +900,13 @@ export function MessageComposer({
                   : `Готово к отправке${recordedVoiceFile ? ` · ${Math.max(1, Math.round(recordedVoiceFile.size / 1024))} КБ` : ""}`}
             </span>
           </div>
+          {recordingVoice && (
+            <div className={styles.voiceRecordingBadge}>
+              <span className={styles.voiceRecordingDot} />
+              <strong>Идет запись</strong>
+              <span>{voiceRecordingTimer}</span>
+            </div>
+          )}
           {recordedVoiceUrl && !recordingVoice && !processingVoice && (
             <audio controls src={recordedVoiceUrl} className={styles.recordedVoiceAudio} />
           )}
@@ -829,6 +945,13 @@ export function MessageComposer({
         value={body}
         placeholder='Напиши сообщение...'
         onChange={(event) => setBody(event.target.value)}
+        onBlur={() => {
+          if (typingKeepAliveRef.current !== null) {
+            window.clearTimeout(typingKeepAliveRef.current)
+            typingKeepAliveRef.current = null
+          }
+          emitTypingState(false)
+        }}
         onKeyDown={(event) => {
           if (!mentionState.visible) {
             if (event.key === "Enter" && !event.shiftKey) {

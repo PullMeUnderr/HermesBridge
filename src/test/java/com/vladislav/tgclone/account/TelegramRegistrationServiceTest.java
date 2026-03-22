@@ -39,7 +39,7 @@ class TelegramRegistrationServiceTest {
             userAccountRepository,
             telegramIdentityRepository,
             apiTokenService,
-            new AccountProperties("main", 365),
+            new AccountProperties("main", 365, null, null, null),
             Clock.fixed(Instant.parse("2026-03-16T12:00:00Z"), ZoneOffset.UTC)
         );
     }

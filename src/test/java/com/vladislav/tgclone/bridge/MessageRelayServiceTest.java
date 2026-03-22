@@ -12,9 +12,7 @@ import com.vladislav.tgclone.conversation.ConversationMentionService;
 import com.vladislav.tgclone.conversation.ConversationMessage;
 import com.vladislav.tgclone.conversation.ConversationMessageRepository;
 import com.vladislav.tgclone.conversation.ConversationService;
-import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,13 +47,12 @@ class MessageRelayServiceTest {
     private UserAccountService userAccountService;
 
     @Mock
-    private DeliveryGateway telegramGateway;
+    private AsyncMessageFanOutService asyncMessageFanOutService;
 
     private MessageRelayService messageRelayService;
 
     @BeforeEach
     void setUp() {
-        when(telegramGateway.transport()).thenReturn(BridgeTransport.TELEGRAM);
         messageRelayService = new MessageRelayService(
             transportBindingRepository,
             conversationMessageRepository,
@@ -64,13 +61,12 @@ class MessageRelayServiceTest {
             conversationEventPublisher,
             conversationMentionService,
             userAccountService,
-            List.of(telegramGateway),
-            Clock.fixed(Instant.parse("2026-03-16T12:00:00Z"), ZoneOffset.UTC)
+            asyncMessageFanOutService
         );
     }
 
     @Test
-    void relayInternalMessagePublishesAndDeliversToTelegramBindings() {
+    void relayInternalMessagePublishesAndSchedulesFanOut() {
         Conversation conversation = new Conversation("demo", "Main", Instant.EPOCH);
         ReflectionTestUtils.setField(conversation, "id", 1L);
 
@@ -87,28 +83,10 @@ class MessageRelayServiceTest {
         );
         ReflectionTestUtils.setField(message, "id", 10L);
 
-        TransportBinding binding = new TransportBinding(
-            conversation,
-            BridgeTransport.TELEGRAM,
-            "-100100",
-            true,
-            Instant.EPOCH
-        );
-        ReflectionTestUtils.setField(binding, "id", 5L);
-
-        when(transportBindingRepository.findAllByConversation_IdAndActiveTrue(1L)).thenReturn(List.of(binding));
-        when(deliveryRecordRepository.existsByConversationMessage_IdAndTargetTransportAndTargetChatId(
-            10L,
-            BridgeTransport.TELEGRAM,
-            "-100100"
-        )).thenReturn(false);
-        when(telegramGateway.deliver(binding, message)).thenReturn("900");
-
         messageRelayService.relayInternalMessage(message);
 
         verify(conversationEventPublisher).publish(message);
-        verify(telegramGateway).deliver(binding, message);
-        verify(deliveryRecordRepository).save(any(DeliveryRecord.class));
+        verify(asyncMessageFanOutService).fanOut(10L, null);
     }
 
     @Test
@@ -159,6 +137,6 @@ class MessageRelayServiceTest {
 
         verify(conversationService, never()).createExternalMessage(any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
         verify(conversationEventPublisher, never()).publish(any());
-        verify(telegramGateway, never()).deliver(any(), any());
+        verify(asyncMessageFanOutService, never()).fanOut(any(), any());
     }
 }

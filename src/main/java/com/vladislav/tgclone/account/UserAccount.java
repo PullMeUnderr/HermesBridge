@@ -108,6 +108,10 @@ public class UserAccount {
         this.displayName = displayName;
     }
 
+    public void activate() {
+        this.active = true;
+    }
+
     public void updateAvatar(
         String avatarStorageKey,
         String avatarMimeType,

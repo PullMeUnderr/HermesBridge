@@ -7,7 +7,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 class ConversationControllerTest {
 
-    private final ConversationController conversationController = new ConversationController(null, null, null, null);
+    private final ConversationController conversationController = new ConversationController(null, null, null, null, null);
 
     @Test
     void detectAttachmentKindFallsBackToVideoExtension() {

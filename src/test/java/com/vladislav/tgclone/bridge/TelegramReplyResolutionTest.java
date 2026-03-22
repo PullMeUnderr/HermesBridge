@@ -12,9 +12,7 @@ import com.vladislav.tgclone.conversation.ConversationMentionService;
 import com.vladislav.tgclone.conversation.ConversationMessage;
 import com.vladislav.tgclone.conversation.ConversationMessageRepository;
 import com.vladislav.tgclone.conversation.ConversationService;
-import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,13 +47,12 @@ class TelegramReplyResolutionTest {
     private UserAccountService userAccountService;
 
     @Mock
-    private DeliveryGateway telegramGateway;
+    private AsyncMessageFanOutService asyncMessageFanOutService;
 
     private MessageRelayService messageRelayService;
 
     @BeforeEach
     void setUp() {
-        when(telegramGateway.transport()).thenReturn(BridgeTransport.TELEGRAM);
         messageRelayService = new MessageRelayService(
             transportBindingRepository,
             conversationMessageRepository,
@@ -64,8 +61,7 @@ class TelegramReplyResolutionTest {
             conversationEventPublisher,
             conversationMentionService,
             userAccountService,
-            List.of(telegramGateway),
-            Clock.fixed(Instant.parse("2026-03-17T10:00:00Z"), ZoneOffset.UTC)
+            asyncMessageFanOutService
         );
     }
 

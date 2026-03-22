@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import styles from "./AppShell.module.scss";
 import { Sidebar } from "@/components/Sidebar/Sidebar";
 import { DrawerPanel } from "@/components/DrawerPanel/DrawerPanel";
@@ -9,6 +9,7 @@ import type {
   AuthUser,
   ConversationMember,
   ConversationMessage,
+  ConversationReadPayload,
   ConversationSummary,
   DrawerMode,
   PendingAttachment,
@@ -23,6 +24,8 @@ interface AppShellProps {
   drawerConversation: ConversationSummary | null;
   messages: ConversationMessage[];
   members: ConversationMember[];
+  readReceipts: ConversationReadPayload[];
+  typingNames: string[];
   loadingConversations: boolean;
   loadingConversationData: boolean;
   onLogout: () => void;
@@ -52,6 +55,7 @@ interface AppShellProps {
     sendAsVideoNote: boolean;
   }) => Promise<void>;
   onReply: (messageId: number) => ConversationMessage | null;
+  onTypingStateChange: (conversationId: number, active: boolean) => void;
   onOpenPhotoViewer: (items: Array<{ src: string; fileName: string }>, activeIndex: number) => void;
 }
 
@@ -65,6 +69,8 @@ export function AppShell(props: AppShellProps) {
     drawerConversation,
     messages,
     members,
+    readReceipts,
+    typingNames,
     loadingConversations,
     loadingConversationData,
     onLogout,
@@ -81,10 +87,20 @@ export function AppShell(props: AppShellProps) {
     onRefreshCurrentConversation,
     onSendMessage,
     onReply,
+    onTypingStateChange,
     onOpenPhotoViewer,
   } = props;
   const [mobileScreen, setMobileScreen] = useState<"sidebar" | "conversation">("sidebar");
   const [mobileViewport, setMobileViewport] = useState(false);
+  const handleTypingStateChange = useCallback(
+    (active: boolean) => {
+      if (!selectedConversation) {
+        return;
+      }
+      onTypingStateChange(selectedConversation.id, active);
+    },
+    [onTypingStateChange, selectedConversation],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -150,12 +166,15 @@ export function AppShell(props: AppShellProps) {
             conversation={selectedConversation}
             messages={messages}
             members={members}
+            readReceipts={readReceipts}
+            typingNames={typingNames}
             loading={loadingConversationData}
             onOpenSettings={() => selectedConversation && onOpenDrawer("conversation", selectedConversation.id)}
             onCreateInvite={onCreateInvite}
             onRefreshConversation={onRefreshCurrentConversation}
             onSendMessage={onSendMessage}
             onReply={onReply}
+            onTypingStateChange={handleTypingStateChange}
             onOpenPhotoViewer={onOpenPhotoViewer}
             onBackToSidebar={mobileViewport ? () => setMobileScreen("sidebar") : undefined}
           />
@@ -164,6 +183,7 @@ export function AppShell(props: AppShellProps) {
 
       {mobileViewport && (
         <DrawerPanel
+          token={token}
           open={drawerMode !== null}
           mode={drawerMode}
           me={me}

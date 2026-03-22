@@ -1,6 +1,17 @@
 import { getProtectedMediaBlob } from "@/lib/protectedMediaCache"
 
-const TOKEN_KEY = "hermes_token"
+const ACCESS_TOKEN_KEY = "hermes_access_token"
+
+export interface AuthSessionResponse<TUser> {
+  accessToken: string
+  accessTokenExpiresAt: string | null
+  user: TUser
+}
+
+export interface AuthRefreshResponse {
+  accessToken: string
+  accessTokenExpiresAt: string | null
+}
 
 function getApiBaseUrl() {
   return process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ?? ""
@@ -31,38 +42,28 @@ function buildHeaders(token: string, init?: HeadersInit, isFormData?: boolean) {
   }
 }
 
-export function readStoredToken() {
+export function readStoredAccessToken() {
   if (typeof window === "undefined") {
     return ""
   }
 
-  return window.localStorage.getItem(TOKEN_KEY) ?? ""
+  return window.localStorage.getItem(ACCESS_TOKEN_KEY) ?? ""
 }
 
-export function writeStoredToken(token: string) {
+export function writeStoredAccessToken(token: string) {
   if (typeof window === "undefined") {
     return
   }
 
   if (token) {
-    window.localStorage.setItem(TOKEN_KEY, token)
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, token)
     return
   }
 
-  window.localStorage.removeItem(TOKEN_KEY)
+  window.localStorage.removeItem(ACCESS_TOKEN_KEY)
 }
 
-export async function apiRequest<T>(
-  token: string,
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const isFormData = options.body instanceof FormData
-  const response = await fetch(resolveUrl(path), {
-    ...options,
-    headers: buildHeaders(token, options.headers, isFormData),
-  })
-
+async function readJsonOrThrow<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let message = `HTTP ${response.status}`
     try {
@@ -81,6 +82,101 @@ export async function apiRequest<T>(
   return response.json() as Promise<T>
 }
 
+export async function exchangeBootstrapToken<TUser>(token: string) {
+  const response = await fetch(resolveUrl("/api/auth/session"), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ token }),
+  })
+
+  return readJsonOrThrow<AuthSessionResponse<TUser>>(response)
+}
+
+export async function registerHermesAccount<TUser>(payload: {
+  username: string
+  displayName: string
+  password: string
+}) {
+  const response = await fetch(resolveUrl("/api/auth/register"), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  return readJsonOrThrow<AuthSessionResponse<TUser>>(response)
+}
+
+export async function loginHermesAccount<TUser>(payload: {
+  username: string
+  password: string
+}) {
+  const response = await fetch(resolveUrl("/api/auth/login"), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  return readJsonOrThrow<AuthSessionResponse<TUser>>(response)
+}
+
+export async function refreshAccessToken() {
+  const response = await fetch(resolveUrl("/api/auth/refresh"), {
+    method: "POST",
+    credentials: "include",
+  })
+
+  return readJsonOrThrow<AuthRefreshResponse>(response)
+}
+
+export async function startTelegramLink(token: string) {
+  return apiRequest<{ code: string; expiresAt: string }>(token, "/api/auth/link/telegram/start", {
+    method: "POST",
+  })
+}
+
+export async function completeHermesRegistration<TUser>(
+  token: string,
+  payload: { username: string; displayName: string; password: string },
+) {
+  return apiRequest<TUser>(token, "/api/auth/me/complete-registration", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function logoutSession() {
+  const response = await fetch(resolveUrl("/api/auth/logout"), {
+    method: "POST",
+    credentials: "include",
+  })
+
+  return readJsonOrThrow<void>(response)
+}
+
+export async function apiRequest<T>(
+  token: string,
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const isFormData = options.body instanceof FormData
+  const response = await fetch(resolveUrl(path), {
+    ...options,
+    credentials: "include",
+    headers: buildHeaders(token, options.headers, isFormData),
+  })
+
+  return readJsonOrThrow<T>(response)
+}
+
 export async function fetchProtectedBlobUrl(token: string, src: string) {
   if (!src) {
     return null
@@ -92,6 +188,7 @@ export async function fetchProtectedBlobUrl(token: string, src: string) {
       : resolveUrl(src)
   const blob = await getProtectedMediaBlob(token, url, async () => {
     const response = await fetch(url, {
+      credentials: "include",
       headers: buildHeaders(token),
     })
 

@@ -2,10 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AuthScreen } from "@/components/AuthScreen/AuthScreen";
+import { CompleteRegistrationScreen } from "@/components/CompleteRegistrationScreen/CompleteRegistrationScreen";
 import { AppShell } from "@/components/AppShell/AppShell";
 import { ToastViewport } from "@/components/ToastViewport/ToastViewport";
 import { PhotoViewerModal } from "@/components/PhotoViewerModal/PhotoViewerModal";
-import { apiRequest, readStoredToken, writeStoredToken } from "@/lib/api";
+import {
+  apiRequest,
+  completeHermesRegistration,
+  exchangeBootstrapToken,
+  loginHermesAccount,
+  logoutSession,
+  readStoredAccessToken,
+  registerHermesAccount,
+  refreshAccessToken,
+  writeStoredAccessToken,
+} from "@/lib/api";
 import { cleanupProtectedMediaCache } from "@/lib/protectedMediaCache";
 import { subscribeToConversationMessages } from "@/lib/ws";
 import type { ConversationSocketSession } from "@/lib/ws";
@@ -53,6 +64,7 @@ export function HermesClient() {
   const wsSessionRef = useRef<ConversationSocketSession | null>(null);
   const typingTimeoutsRef = useRef<Record<string, number>>({});
   const wasWsConnectedRef = useRef(false);
+  const refreshPromiseRef = useRef<Promise<string> | null>(null);
 
   const invalidatePendingConversationLoad = useCallback(() => {
     conversationLoadSeqRef.current += 1;
@@ -90,8 +102,8 @@ export function HermesClient() {
     }, 4200);
   }, []);
 
-  const handleUnauthorized = useCallback(() => {
-    writeStoredToken("");
+  const clearSession = useCallback(() => {
+    writeStoredAccessToken("");
     setToken("");
     setMe(null);
     setConversations([]);
@@ -104,18 +116,45 @@ export function HermesClient() {
     setDrawerConversationId(null);
   }, []);
 
+  const refreshSession = useCallback(async () => {
+    if (refreshPromiseRef.current) {
+      return refreshPromiseRef.current;
+    }
+
+    const pendingRefresh = refreshAccessToken()
+      .then((response) => {
+        setToken(response.accessToken);
+        writeStoredAccessToken(response.accessToken);
+        return response.accessToken;
+      })
+      .finally(() => {
+        refreshPromiseRef.current = null;
+      });
+
+    refreshPromiseRef.current = pendingRefresh;
+    return pendingRefresh;
+  }, []);
+
   const request = useCallback(
     async <T,>(path: string, options: RequestInit = {}) => {
+      const runRequest = async (currentToken: string) => apiRequest<T>(currentToken, path, options);
+
       try {
-        return await apiRequest<T>(token, path, options);
+        return await runRequest(token);
       } catch (error) {
         if (error instanceof Error && error.message.includes("HTTP 401")) {
-          handleUnauthorized();
+          try {
+            const refreshedToken = await refreshSession();
+            return await runRequest(refreshedToken);
+          } catch (refreshError) {
+            clearSession();
+            throw refreshError;
+          }
         }
         throw error;
       }
     },
-    [handleUnauthorized, token],
+    [clearSession, refreshSession, token],
   );
 
   const summarizeConversationMessage = useCallback((message: ConversationMessage) => {
@@ -362,45 +401,59 @@ export function HermesClient() {
     [markConversationReadLocally, request],
   );
 
-  const bootstrap = useCallback(
-    async (incomingToken: string) => {
+  const hydrateSession = useCallback(
+    async (incomingToken: string, incomingUser?: AuthUser | null) => {
       setAuthLoading(true);
       setToken(incomingToken);
-      writeStoredToken(incomingToken);
+      writeStoredAccessToken(incomingToken);
 
       try {
-        const user = await apiRequest<AuthUser>(incomingToken, "/api/auth/me");
+        const user = incomingUser ?? (await apiRequest<AuthUser>(incomingToken, "/api/auth/me"));
         setMe(user);
         const nextConversations = await apiRequest<ConversationSummary[]>(incomingToken, "/api/conversations");
         setConversations(nextConversations);
         setSelectedConversationId(nextConversations[0]?.id ?? null);
       } catch (error) {
-        writeStoredToken("");
-        setToken("");
-        setMe(null);
+        clearSession();
         throw error;
       } finally {
         setAuthLoading(false);
       }
     },
-    [],
+    [clearSession],
   );
 
   useEffect(() => {
-    const savedToken = readStoredToken();
-    if (!savedToken) {
-      setBooting(false);
-      return;
-    }
+    const restoreSession = async () => {
+      const savedToken = readStoredAccessToken();
 
-    bootstrap(savedToken)
+      if (savedToken) {
+        try {
+          await hydrateSession(savedToken);
+          return;
+        } catch (error) {
+          if (!(error instanceof Error) || !error.message.includes("HTTP 401")) {
+            throw error;
+          }
+        }
+      }
+
+      const refreshed = await refreshSession();
+      await hydrateSession(refreshed);
+    };
+
+    restoreSession()
       .catch((error) => {
+        clearSession();
+        if (error instanceof Error && error.message.includes("HTTP 401")) {
+          return;
+        }
         pushToast(error instanceof Error ? error.message : "Не удалось открыть сессию.", "error");
       })
       .finally(() => {
         setBooting(false);
       });
-  }, [bootstrap, pushToast]);
+  }, [clearSession, hydrateSession, pushToast, refreshSession]);
 
   useEffect(() => {
     void cleanupProtectedMediaCache(true);
@@ -562,18 +615,54 @@ export function HermesClient() {
       }
 
       try {
-        await bootstrap(incomingToken);
+        const session = await exchangeBootstrapToken<AuthUser>(incomingToken);
+        await hydrateSession(session.accessToken, session.user);
       } catch (error) {
         pushToast(error instanceof Error ? error.message : "Не удалось войти.", "error");
       }
     },
-    [bootstrap, pushToast],
+    [hydrateSession, pushToast],
+  );
+
+  const loginWithPassword = useCallback(
+    async (payload: { username: string; password: string }) => {
+      if (!payload.username || !payload.password) {
+        pushToast("Заполни username и пароль.", "error");
+        return;
+      }
+
+      try {
+        const session = await loginHermesAccount<AuthUser>(payload);
+        await hydrateSession(session.accessToken, session.user);
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : "Не удалось войти в Hermes.", "error");
+      }
+    },
+    [hydrateSession, pushToast],
+  );
+
+  const register = useCallback(
+    async (payload: { username: string; displayName: string; password: string }) => {
+      if (!payload.username || !payload.displayName || !payload.password) {
+        pushToast("Заполни имя, username и пароль.", "error");
+        return;
+      }
+
+      try {
+        const session = await registerHermesAccount<AuthUser>(payload);
+        await hydrateSession(session.accessToken, session.user);
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : "Не удалось создать Hermes account.", "error");
+      }
+    },
+    [hydrateSession, pushToast],
   );
 
   const logout = useCallback(() => {
-    handleUnauthorized();
+    void logoutSession().catch(() => {});
+    clearSession();
     pushToast("Сессия закрыта.", "info");
-  }, [handleUnauthorized, pushToast]);
+  }, [clearSession, pushToast]);
 
   const createConversation = useCallback(
     async (title: string) => {
@@ -623,6 +712,39 @@ export function HermesClient() {
       pushToast("Профиль обновлён.", "success");
     },
     [pushToast, request],
+  );
+
+  const createTelegramLink = useCallback(async () => {
+    const response = await request<{ code: string; expiresAt: string }>("/api/auth/link/telegram/start", {
+      method: "POST",
+    });
+    pushToast("Код привязки Telegram создан и скопирован, если браузер разрешил clipboard.", "success");
+    return response;
+  }, [pushToast, request]);
+
+  const completeRegistration = useCallback(
+    async (payload: { username: string; displayName: string; password: string }) => {
+      if (!token) {
+        pushToast("Сессия не найдена. Войди заново.", "error");
+        return;
+      }
+      if (!payload.username || !payload.displayName || !payload.password) {
+        pushToast("Заполни имя, username и пароль.", "error");
+        return;
+      }
+
+      try {
+        setAuthLoading(true);
+        const updatedUser = await completeHermesRegistration<AuthUser>(token, payload);
+        setMe(updatedUser);
+        pushToast("Hermes login настроен. Теперь можно входить по username и паролю.", "success");
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : "Не удалось завершить регистрацию.", "error");
+      } finally {
+        setAuthLoading(false);
+      }
+    },
+    [pushToast, token],
   );
 
   const updateConversation = useCallback(
@@ -780,9 +902,18 @@ export function HermesClient() {
     );
   }
 
+  const needsHermesCompletion = Boolean(me && me.telegramLinked && !me.passwordLinked);
+
   return (
     <>
-      {me ? (
+      {me && needsHermesCompletion ? (
+        <CompleteRegistrationScreen
+          me={me}
+          submitting={authLoading}
+          onSubmit={completeRegistration}
+          onLogout={logout}
+        />
+      ) : me ? (
         <AppShell
           token={token}
           me={me}
@@ -816,6 +947,7 @@ export function HermesClient() {
           onCreateConversation={createConversation}
           onJoinConversation={joinConversation}
           onUpdateProfile={updateProfile}
+          onStartTelegramLink={createTelegramLink}
           onUpdateConversation={updateConversation}
           onDeleteConversation={deleteConversation}
           onCreateInvite={createInvite}
@@ -832,7 +964,13 @@ export function HermesClient() {
           onOpenPhotoViewer={(items, activeIndex) => setPhotoViewer({ items, activeIndex })}
         />
       ) : (
-        <AuthScreen initialToken={token} submitting={authLoading} onSubmit={login} />
+        <AuthScreen
+          initialToken={token}
+          submitting={authLoading}
+          onTokenSubmit={login}
+          onPasswordLogin={loginWithPassword}
+          onRegister={register}
+        />
       )}
 
       <ToastViewport toasts={toasts} />

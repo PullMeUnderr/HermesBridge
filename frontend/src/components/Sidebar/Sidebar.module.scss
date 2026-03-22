@@ -107,9 +107,26 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
+.userIdentity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+}
+
 .userMeta {
   display: grid;
   gap: 4px;
+  min-width: 0;
+}
+
+.userMeta strong,
+.userMeta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .userMeta span {
@@ -289,12 +306,30 @@
   text-align: center;
 }
 
+.badgeMention {
+  background: #8bf3b3;
+  box-shadow:
+    0 0 0 1px rgba(139, 243, 179, 0.28),
+    0 0 14px rgba(95, 202, 120, 0.36);
+}
+
 @container (max-width: 560px) {
+  .sidebarScaleFrame {
+    height: calc(100% / 0.9);
+  }
+
   .sidebarScaleContent {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
     width: calc(100% / 0.9);
+    height: calc(100% / 0.9);
     min-height: calc(100% / 0.9);
     transform: scale(0.9);
     transform-origin: top left;
+  }
+
+  .sidebar[data-drawer-open="true"] .sidebarScaleContent {
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .sidebar {
@@ -334,6 +369,10 @@
   .userCard {
     gap: 12px;
     padding: 14px;
+  }
+
+  .userIdentity {
+    gap: 12px;
   }
 
   .userMeta strong {
@@ -476,6 +515,11 @@
 
   .userCard {
     padding: 16px;
+  }
+
+  .userIdentity {
+    grid-template-columns: 1fr;
+    justify-items: start;
   }
 
   .panelHead {

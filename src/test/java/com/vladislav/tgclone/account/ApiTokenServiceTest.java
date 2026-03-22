@@ -2,6 +2,7 @@ package com.vladislav.tgclone.account;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -16,6 +17,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.ArgumentCaptor;
+import org.springframework.core.env.Environment;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
@@ -24,15 +27,23 @@ class ApiTokenServiceTest {
     @Mock
     private ApiTokenRepository apiTokenRepository;
 
+    @Mock
+    private UserAccountRepository userAccountRepository;
+
+    @Mock
+    private Environment environment;
+
     private ApiTokenService apiTokenService;
 
     @BeforeEach
     void setUp() {
         apiTokenService = new ApiTokenService(
             apiTokenRepository,
+            userAccountRepository,
             new TokenHasher(),
-            new AccountProperties("main", 365),
-            Clock.fixed(Instant.parse("2026-03-17T12:00:00Z"), ZoneOffset.UTC)
+            new AccountProperties("main", 365, null, null, null),
+            Clock.fixed(Instant.parse("2026-03-17T12:00:00Z"), ZoneOffset.UTC),
+            environment
         );
     }
 
@@ -86,5 +97,59 @@ class ApiTokenServiceTest {
 
         assertTrue(issuedApiToken.plainTextToken().startsWith("tgc_"));
         assertTrue(issuedApiToken.createdNew());
+    }
+
+    @Test
+    void authenticateReturnsConfiguredMasterUserAndCreatesItWhenMissing() {
+        apiTokenService = new ApiTokenService(
+            apiTokenRepository,
+            userAccountRepository,
+            new TokenHasher(),
+            new AccountProperties("main", 365, "master-token", "dev_admin", "Dev Admin"),
+            Clock.fixed(Instant.parse("2026-03-17T12:00:00Z"), ZoneOffset.UTC),
+            environment
+        );
+
+        when(environment.acceptsProfiles(org.springframework.core.env.Profiles.of("prod"))).thenReturn(false);
+        when(userAccountRepository.findByUsername("dev_admin")).thenReturn(Optional.empty());
+        when(userAccountRepository.save(org.mockito.ArgumentMatchers.any(UserAccount.class)))
+            .thenAnswer(invocation -> {
+                UserAccount savedUser = invocation.getArgument(0);
+                ReflectionTestUtils.setField(savedUser, "id", 42L);
+                return savedUser;
+            });
+
+        Optional<com.vladislav.tgclone.security.AuthenticatedUser> authenticatedUser = apiTokenService.authenticate("master-token");
+
+        assertTrue(authenticatedUser.isPresent());
+        assertEquals(42L, authenticatedUser.get().userId());
+        assertEquals("dev_admin", authenticatedUser.get().username());
+        assertEquals("Dev Admin", authenticatedUser.get().displayName());
+
+        ArgumentCaptor<UserAccount> userCaptor = ArgumentCaptor.forClass(UserAccount.class);
+        verify(userAccountRepository).save(userCaptor.capture());
+        assertEquals("main", userCaptor.getValue().getTenantKey());
+        assertEquals("dev_admin", userCaptor.getValue().getUsername());
+        assertEquals("Dev Admin", userCaptor.getValue().getDisplayName());
+        assertTrue(userCaptor.getValue().isActive());
+        assertNotNull(userCaptor.getValue().getCreatedAt());
+    }
+
+    @Test
+    void authenticateIgnoresMasterTokenInProdProfile() {
+        apiTokenService = new ApiTokenService(
+            apiTokenRepository,
+            userAccountRepository,
+            new TokenHasher(),
+            new AccountProperties("main", 365, "master-token", "dev_admin", "Dev Admin"),
+            Clock.fixed(Instant.parse("2026-03-17T12:00:00Z"), ZoneOffset.UTC),
+            environment
+        );
+
+        when(environment.acceptsProfiles(org.springframework.core.env.Profiles.of("prod"))).thenReturn(true);
+
+        Optional<com.vladislav.tgclone.security.AuthenticatedUser> authenticatedUser = apiTokenService.authenticate("master-token");
+
+        assertTrue(authenticatedUser.isEmpty());
     }
 }

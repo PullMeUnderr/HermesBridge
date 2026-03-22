@@ -80,11 +80,13 @@ export function Sidebar({
             <p className={styles.muted}>Чаты, участники, инвайты и Telegram sync.</p>
 
             <div className={styles.userCard}>
-              <Avatar token={token} name={me.displayName || me.username} src={me.avatarUrl} size="lg" />
-              <div className={styles.userMeta}>
-                <strong>{me.displayName}</strong>
-                <span>@{me.username}</span>
-                <span>{renderPresenceLabel(me)}</span>
+              <div className={styles.userIdentity}>
+                <Avatar token={token} name={me.displayName || me.username} src={me.avatarUrl} size="lg" />
+                <div className={styles.userMeta}>
+                  <strong>{me.displayName}</strong>
+                  <span>@{me.username}</span>
+                  <span>{renderPresenceLabel(me)}</span>
+                </div>
               </div>
               <button className={styles.secondaryButton} type="button" onClick={onOpenProfile}>
                 Профиль
@@ -104,6 +106,7 @@ export function Sidebar({
           {inlineDrawer && drawerMode && (
             <section className={`${styles.panel} ${styles.drawerPanel}`}>
               <DrawerPanel
+                token={token}
                 open={Boolean(drawerMode)}
                 inline
                 mode={drawerMode}
@@ -145,7 +148,13 @@ export function Sidebar({
                       </div>
                       <div className={styles.rowBottom}>
                         <span>{conversation.lastMessagePreview || "Новый чат без сообщений"}</span>
-                        {conversation.unreadCount > 0 && <span className={styles.badge}>{conversation.unreadCount}</span>}
+                        {conversation.unreadCount > 0 && (
+                          <span
+                            className={`${styles.badge} ${conversation.hasUnreadMention ? styles.badgeMention : ""}`}
+                          >
+                            {conversation.unreadCount}
+                          </span>
+                        )}
                       </div>
                       <div className={styles.rowMeta}>
                         <span className={styles.role}>{conversation.membershipRole}</span>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import styles from "./ConversationView.module.scss"
 import { Avatar } from "@/components/ui/Avatar"
 import { MessagesList } from "@/components/MessagesList/MessagesList"
@@ -11,6 +11,7 @@ import type {
   AuthUser,
   ConversationMember,
   ConversationMessage,
+  ConversationReadPayload,
   ConversationSummary,
   PendingAttachment,
 } from "@/types/api"
@@ -21,6 +22,8 @@ interface ConversationViewProps {
   conversation: ConversationSummary | null
   messages: ConversationMessage[]
   members: ConversationMember[]
+  readReceipts: ConversationReadPayload[]
+  typingNames?: string[]
   loading: boolean
   onOpenSettings: () => void
   onCreateInvite: () => Promise<void>
@@ -32,11 +35,29 @@ interface ConversationViewProps {
     sendAsVideoNote: boolean
   }) => Promise<void>
   onReply: (messageId: number) => ConversationMessage | null
+  onTypingStateChange: (active: boolean) => void
   onOpenPhotoViewer: (
     items: Array<{ src: string; fileName: string }>,
     activeIndex: number,
   ) => void
   onBackToSidebar?: () => void
+}
+
+function formatTypingLabel(typingNames: string[]) {
+  if (typingNames.length === 0) {
+    return null
+  }
+
+  if (typingNames.length === 1) {
+    return `${typingNames[0]} печатает...`
+  }
+
+  if (typingNames.length === 2) {
+    return `${typingNames[0]} печатает и ${typingNames[1]} печатает`
+  }
+
+  const additionalCount = typingNames.length - 2
+  return `${typingNames[0]} печатает и ${typingNames[1]} печатает + ${additionalCount} еще`
 }
 
 export function ConversationView({
@@ -45,17 +66,51 @@ export function ConversationView({
   conversation,
   messages,
   members,
+  readReceipts,
+  typingNames = [],
   loading,
   onOpenSettings,
   onCreateInvite,
   onRefreshConversation,
   onSendMessage,
   onReply,
+  onTypingStateChange,
   onOpenPhotoViewer,
   onBackToSidebar,
 }: ConversationViewProps) {
   const [replyToMessageId, setReplyToMessageId] = useState<number | null>(null)
   const [membersOpen, setMembersOpen] = useState(false)
+  const [visibleTypingNames, setVisibleTypingNames] = useState<string[]>(typingNames)
+  const typingClearTimerRef = useRef<number | null>(null)
+  const typingLabel = formatTypingLabel(visibleTypingNames)
+
+  useEffect(() => {
+    if (typingNames.length > 0) {
+      if (typingClearTimerRef.current !== null) {
+        window.clearTimeout(typingClearTimerRef.current)
+        typingClearTimerRef.current = null
+      }
+      setVisibleTypingNames(typingNames)
+      return
+    }
+
+    if (typingClearTimerRef.current !== null) {
+      window.clearTimeout(typingClearTimerRef.current)
+    }
+
+    typingClearTimerRef.current = window.setTimeout(() => {
+      setVisibleTypingNames([])
+      typingClearTimerRef.current = null
+    }, 1200)
+  }, [typingNames])
+
+  useEffect(() => {
+    return () => {
+      if (typingClearTimerRef.current !== null) {
+        window.clearTimeout(typingClearTimerRef.current)
+      }
+    }
+  }, [])
 
   const replyTarget = useMemo(
     () =>
@@ -64,7 +119,10 @@ export function ConversationView({
         : null,
     [messages, replyToMessageId],
   )
-
+  const currentUserLastReadAt = useMemo(
+    () => members.find((member) => member.userId === me.id)?.lastReadMessageCreatedAt ?? null,
+    [me.id, members],
+  )
   if (!conversation) {
     return (
       <section className={styles.emptyState}>
@@ -107,7 +165,7 @@ export function ConversationView({
             </div>
             <h2>{conversation.title}</h2>
             <p className={styles.meta}>
-              {members.length} участников, профиль {renderPresenceLabel(me)}
+              {typingLabel ?? `${members.length} участников, профиль ${renderPresenceLabel(me)}`}
             </p>
           </div>
         </div>
@@ -160,6 +218,8 @@ export function ConversationView({
             me={me}
             conversationId={conversation.id}
             messages={messages}
+            currentUserLastReadAt={currentUserLastReadAt}
+            readReceipts={readReceipts}
             loading={loading}
             onReply={(messageId) =>
               setReplyToMessageId(onReply(messageId)?.id ?? null)
@@ -167,9 +227,11 @@ export function ConversationView({
             onOpenPhotoViewer={onOpenPhotoViewer}
           />
           <MessageComposer
+            currentUserId={me.id}
             members={members}
             replyTarget={replyTarget}
             onCancelReply={() => setReplyToMessageId(null)}
+            onTypingStateChange={onTypingStateChange}
             onSend={async (payload) => {
               await onSendMessage({ ...payload, replyToMessageId })
               setReplyToMessageId(null)

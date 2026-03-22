@@ -2,9 +2,11 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import styles from "./DrawerPanel.module.scss";
+import { Avatar } from "@/components/ui/Avatar";
 import type { AuthUser, ConversationSummary, DrawerMode } from "@/types/api";
 
 interface DrawerPanelProps {
+  token: string;
   open: boolean;
   mode: DrawerMode;
   me: AuthUser;
@@ -27,6 +29,7 @@ interface DrawerPanelProps {
 }
 
 export function DrawerPanel({
+  token,
   open,
   mode,
   me,
@@ -47,6 +50,7 @@ export function DrawerPanel({
   const [removeProfileAvatar, setRemoveProfileAvatar] = useState(false);
   const [conversationTitle, setConversationTitle] = useState(conversation?.title ?? "");
   const [conversationAvatar, setConversationAvatar] = useState<File | null>(null);
+  const [conversationAvatarPreview, setConversationAvatarPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -54,8 +58,21 @@ export function DrawerPanel({
     setProfileName(me.displayName);
     setProfileUsername(me.username);
     setConversationTitle(conversation?.title ?? "");
+    setConversationAvatar(null);
     setErrorMessage("");
   }, [conversation?.title, me.displayName, me.username, mode, open]);
+
+  useEffect(() => {
+    if (!conversationAvatar) {
+      setConversationAvatarPreview(null);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(conversationAvatar);
+    setConversationAvatarPreview(objectUrl);
+
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [conversationAvatar]);
 
   if (!open || !mode) {
     return null;
@@ -262,8 +279,19 @@ export function DrawerPanel({
               placeholder="Название чата"
               disabled={!canManageConversation || busy}
             />
-            <label className={styles.fileField}>
-              <span>Аватар чата</span>
+            <label className={`${styles.fileField} ${styles.avatarField}`}>
+              <div className={styles.avatarPreviewRow}>
+                <Avatar
+                  token={token}
+                  name={conversationTitle.trim() || conversation.title}
+                  src={conversationAvatarPreview ?? conversation.avatarUrl}
+                  size="md"
+                />
+                <div className={styles.avatarPreviewMeta}>
+                  <span>Аватар чата</span>
+                  <small>{conversationAvatar ? conversationAvatar.name : "Текущее фото или новый файл"}</small>
+                </div>
+              </div>
               <input
                 type="file"
                 accept="image/*"
@@ -271,25 +299,29 @@ export function DrawerPanel({
                 onChange={(event) => setConversationAvatar(event.target.files?.[0] ?? null)}
               />
             </label>
-            <button
-              className={styles.secondary}
-              type="button"
-              disabled={busy}
-              onClick={() => void handleToggleMute()}
-            >
-              {conversation.muted ? "Включить уведомления" : "Заглушить чат"}
-            </button>
-            <button type="submit" disabled={!canManageConversation || busy}>
-              Сохранить чат
-            </button>
-            <button
-              className={styles.danger}
-              type="button"
-              disabled={!canManageConversation || busy}
-              onClick={() => void handleDeleteConversation()}
-            >
-              Удалить чат
-            </button>
+            <div className={styles.actionRow}>
+              <button
+                className={`${styles.secondary} ${styles.compactAction}`}
+                type="button"
+                disabled={busy}
+                onClick={() => void handleToggleMute()}
+              >
+                {conversation.muted ? "Включить уведомления" : "Заглушить чат"}
+              </button>
+              <button className={styles.compactAction} type="submit" disabled={!canManageConversation || busy}>
+                Сохранить чат
+              </button>
+            </div>
+            <div className={styles.destructiveRow}>
+              <button
+                className={`${styles.danger} ${styles.compactAction} ${styles.destructiveAction}`}
+                type="button"
+                disabled={!canManageConversation || busy}
+                onClick={() => void handleDeleteConversation()}
+              >
+                Удалить чат
+              </button>
+            </div>
           </form>
         )}
       </section>

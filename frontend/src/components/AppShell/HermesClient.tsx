@@ -7,10 +7,16 @@ import { ToastViewport } from "@/components/ToastViewport/ToastViewport";
 import { PhotoViewerModal } from "@/components/PhotoViewerModal/PhotoViewerModal";
 import { apiRequest, readStoredToken, writeStoredToken } from "@/lib/api";
 import { cleanupProtectedMediaCache } from "@/lib/protectedMediaCache";
+import { subscribeToConversationMessages } from "@/lib/ws";
+import type { ConversationSocketSession } from "@/lib/ws";
 import type {
   AuthUser,
   ConversationMember,
   ConversationMessage,
+  ConversationReadPayload,
+  ConversationSocketEvent,
+  ConversationSocketSummaryPayload,
+  ConversationTypingPayload,
   ConversationSummary,
   DrawerMode,
   InviteAcceptance,
@@ -36,19 +42,45 @@ export function HermesClient() {
   const [drawerConversationId, setDrawerConversationId] = useState<number | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [photoViewer, setPhotoViewer] = useState<PhotoViewerState>(EMPTY_PHOTO_VIEWER);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [typingByConversation, setTypingByConversation] = useState<Record<number, Record<number, string>>>({});
+  const [readByConversation, setReadByConversation] = useState<
+    Record<number, Record<number, { displayName: string; readAt: string }>>
+  >({});
   const toastIdRef = useRef(1);
   const lastReadConversationIdRef = useRef<number | null>(null);
   const conversationLoadSeqRef = useRef(0);
+  const wsSessionRef = useRef<ConversationSocketSession | null>(null);
+  const typingTimeoutsRef = useRef<Record<string, number>>({});
+  const wasWsConnectedRef = useRef(false);
+
+  const invalidatePendingConversationLoad = useCallback(() => {
+    conversationLoadSeqRef.current += 1;
+    setLoadingConversationData(false);
+  }, []);
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId],
   );
+  const selectedTypingNames = useMemo(() => {
+    if (!selectedConversationId) {
+      return [];
+    }
+    return Object.values(typingByConversation[selectedConversationId] ?? {}).sort((left, right) =>
+      left.localeCompare(right, "ru"),
+    );
+  }, [selectedConversationId, typingByConversation]);
 
   const drawerConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === drawerConversationId) ?? null,
     [conversations, drawerConversationId],
   );
+  const subscribedConversationIds = useMemo(
+    () => conversations.map((conversation) => conversation.id).sort((left, right) => left - right),
+    [conversations],
+  );
+  const subscribedConversationIdsKey = subscribedConversationIds.join(",");
 
   const pushToast = useCallback((message: string, kind: ToastMessage["kind"]) => {
     const id = toastIdRef.current++;
@@ -66,6 +98,8 @@ export function HermesClient() {
     setSelectedConversationId(null);
     setMessages([]);
     setMembers([]);
+    setTypingByConversation({});
+    setReadByConversation({});
     setDrawerMode(null);
     setDrawerConversationId(null);
   }, []);
@@ -83,6 +117,173 @@ export function HermesClient() {
     },
     [handleUnauthorized, token],
   );
+
+  const summarizeConversationMessage = useCallback((message: ConversationMessage) => {
+    const body = message.body?.trim();
+    if (body) {
+      return body.length > 120 ? `${body.slice(0, 117)}...` : body;
+    }
+
+    if (message.attachments.length === 0) {
+      return "Сообщение";
+    }
+
+    if (message.attachments.length > 1) {
+      return `${message.attachments.length} вложения`;
+    }
+
+    const attachment = message.attachments[0];
+    switch (attachment.kind) {
+      case "PHOTO":
+        return "Фото";
+      case "VIDEO":
+        return "Видео";
+      case "VIDEO_NOTE":
+        return "Кружок";
+      case "VOICE":
+        return "Голосовое";
+      default:
+        return "Файл";
+    }
+  }, []);
+
+  const upsertConversationMessage = useCallback((message: ConversationMessage) => {
+    setMessages((current) => {
+      const withoutDuplicate = current.filter((item) => item.id !== message.id);
+      return [...withoutDuplicate, message].sort((left, right) => {
+        if (left.createdAt === right.createdAt) {
+          return left.id - right.id;
+        }
+        return left.createdAt.localeCompare(right.createdAt);
+      });
+    });
+  }, []);
+
+  const applyConversationMessageSummary = useCallback(
+    (message: ConversationMessage, options: { unreadCount?: number } = {}) => {
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === message.conversationId
+            ? {
+                ...conversation,
+                lastMessagePreview: summarizeConversationMessage(message),
+                lastMessageCreatedAt: message.createdAt,
+                ...(typeof options.unreadCount === "number" ? { unreadCount: options.unreadCount } : {}),
+              }
+            : conversation,
+        ),
+      );
+    },
+    [summarizeConversationMessage],
+  );
+
+  const markConversationReadLocally = useCallback(
+    async (conversationId: number) => {
+      lastReadConversationIdRef.current = conversationId;
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === conversationId
+            ? { ...conversation, unreadCount: 0, hasUnreadMention: false }
+            : conversation,
+        ),
+      );
+      if (wsSessionRef.current?.sendConversationRead(conversationId)) {
+        return;
+      }
+      await request(`/api/conversations/${conversationId}/read`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    },
+    [request],
+  );
+
+  const updateTypingState = useCallback(
+    (payload: ConversationTypingPayload) => {
+      if (!payload.conversationId || !payload.userId || !me || payload.userId === me.id) {
+        return;
+      }
+
+      const timerKey = `${payload.conversationId}:${payload.userId}`;
+      const clearExistingTimer = () => {
+        const handle = typingTimeoutsRef.current[timerKey];
+        if (typeof handle === "number") {
+          window.clearTimeout(handle);
+          delete typingTimeoutsRef.current[timerKey];
+        }
+      };
+
+      if (!payload.active) {
+        clearExistingTimer();
+        setTypingByConversation((current) => {
+          const nextConversationTyping = { ...(current[payload.conversationId] ?? {}) };
+          delete nextConversationTyping[payload.userId];
+          if (Object.keys(nextConversationTyping).length === 0) {
+            const next = { ...current };
+            delete next[payload.conversationId];
+            return next;
+          }
+          return { ...current, [payload.conversationId]: nextConversationTyping };
+        });
+        return;
+      }
+
+      setTypingByConversation((current) => ({
+        ...current,
+        [payload.conversationId]: {
+          ...(current[payload.conversationId] ?? {}),
+          [payload.userId]: payload.displayName,
+        },
+      }));
+
+      clearExistingTimer();
+      typingTimeoutsRef.current[timerKey] = window.setTimeout(() => {
+        setTypingByConversation((current) => {
+          const nextConversationTyping = { ...(current[payload.conversationId] ?? {}) };
+          delete nextConversationTyping[payload.userId];
+          if (Object.keys(nextConversationTyping).length === 0) {
+            const next = { ...current };
+            delete next[payload.conversationId];
+            return next;
+          }
+          return { ...current, [payload.conversationId]: nextConversationTyping };
+        });
+        delete typingTimeoutsRef.current[timerKey];
+      }, 4000);
+    },
+    [me],
+  );
+
+  const sendTypingState = useCallback((conversationId: number, active: boolean) => {
+    if (!conversationId) {
+      return;
+    }
+    wsSessionRef.current?.sendTypingState(conversationId, active);
+  }, []);
+
+  const upsertConversationReadState = useCallback((payload: ConversationReadPayload) => {
+    if (!payload.conversationId || !payload.userId || !payload.readAt) {
+      return;
+    }
+
+    setReadByConversation((current) => {
+      const nextConversationReads = { ...(current[payload.conversationId] ?? {}) };
+      const existing = nextConversationReads[payload.userId];
+      if (existing && existing.readAt >= payload.readAt) {
+        return current;
+      }
+
+      nextConversationReads[payload.userId] = {
+        displayName: payload.displayName,
+        readAt: payload.readAt,
+      };
+
+      return {
+        ...current,
+        [payload.conversationId]: nextConversationReads,
+      };
+    });
+  }, []);
 
   const loadConversations = useCallback(async () => {
     if (!token) {
@@ -132,19 +333,25 @@ export function HermesClient() {
         setMessages(nextMessages);
         if (nextMembers) {
           setMembers(nextMembers);
+          setReadByConversation((current) => ({
+            ...current,
+            [conversationId]: nextMembers.reduce<Record<number, { displayName: string; readAt: string }>>(
+              (acc, member) => {
+                if (member.lastReadMessageCreatedAt) {
+                  acc[member.userId] = {
+                    displayName: member.displayName,
+                    readAt: member.lastReadMessageCreatedAt,
+                  };
+                }
+                return acc;
+              },
+              {},
+            ),
+          }));
         }
 
         if (markRead && lastReadConversationIdRef.current !== conversationId) {
-          await request(`/api/conversations/${conversationId}/read`, {
-            method: "POST",
-            body: JSON.stringify({}),
-          });
-          lastReadConversationIdRef.current = conversationId;
-          setConversations((current) =>
-            current.map((conversation) =>
-              conversation.id === conversationId ? { ...conversation, unreadCount: 0 } : conversation,
-            ),
-          );
+          await markConversationReadLocally(conversationId);
         }
       } finally {
         if (requestSeq === conversationLoadSeqRef.current) {
@@ -152,7 +359,7 @@ export function HermesClient() {
         }
       }
     },
-    [request],
+    [markConversationReadLocally, request],
   );
 
   const bootstrap = useCallback(
@@ -214,6 +421,94 @@ export function HermesClient() {
   }, [loadConversationData, pushToast, selectedConversationId, token]);
 
   useEffect(() => {
+    if (!selectedConversation || !token) {
+      return;
+    }
+
+    if (selectedConversation.unreadCount <= 0) {
+      return;
+    }
+
+    if (lastReadConversationIdRef.current === selectedConversation.id) {
+      return;
+    }
+
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+      return;
+    }
+
+    void markConversationReadLocally(selectedConversation.id).catch(() => {});
+  }, [markConversationReadLocally, selectedConversation, token]);
+
+  useEffect(() => {
+    if (!token || !me || subscribedConversationIds.length === 0) {
+      setWsConnected(false);
+      return;
+    }
+
+    return subscribeToConversationMessages({
+      token,
+      userId: me.id,
+      conversationIds: subscribedConversationIds,
+      onConnectionChange: setWsConnected,
+      onSessionReady: (session) => {
+        wsSessionRef.current = session;
+      },
+      onEvent: (
+        event: ConversationSocketEvent<
+          ConversationMessage | ConversationReadPayload | ConversationSocketSummaryPayload | ConversationTypingPayload
+        >,
+      ) => {
+        if (event.type === "conversation_summary") {
+          const summary = event.payload as ConversationSocketSummaryPayload;
+          setConversations((current) =>
+            current.map((conversation) => (conversation.id === summary.id ? { ...conversation, ...summary } : conversation)),
+          );
+          return;
+        }
+
+        if (event.type === "typing_start" || event.type === "typing_stop") {
+          updateTypingState(event.payload as ConversationTypingPayload);
+          return;
+        }
+
+        if (event.type === "conversation_read") {
+          upsertConversationReadState(event.payload as ConversationReadPayload);
+          return;
+        }
+
+        if (event.type !== "new_message") {
+          return;
+        }
+
+        const message = event.payload as ConversationMessage;
+        const isSelectedConversation = message.conversationId === selectedConversationId;
+        const shouldAutoRead =
+          isSelectedConversation && typeof document !== "undefined" && document.visibilityState === "visible";
+
+        if (isSelectedConversation) {
+          invalidatePendingConversationLoad();
+          upsertConversationMessage(message);
+        }
+
+        if (shouldAutoRead) {
+          void markConversationReadLocally(message.conversationId).catch(() => {});
+        }
+      },
+    });
+  }, [
+    markConversationReadLocally,
+    me,
+    selectedConversationId,
+    subscribedConversationIdsKey,
+    invalidatePendingConversationLoad,
+    token,
+    upsertConversationReadState,
+    updateTypingState,
+    upsertConversationMessage,
+  ]);
+
+  useEffect(() => {
     if (!token || !me) {
       return;
     }
@@ -224,13 +519,40 @@ export function HermesClient() {
       }
 
       void loadConversations();
-      if (selectedConversationId) {
+      if (selectedConversationId && !wsConnected) {
         void loadConversationData(selectedConversationId, { includeMembers: false, markRead: false });
       }
     }, 15000);
 
     return () => window.clearInterval(handle);
-  }, [loadConversationData, loadConversations, me, selectedConversationId, token]);
+  }, [loadConversationData, loadConversations, me, selectedConversationId, token, wsConnected]);
+
+  useEffect(() => {
+    if (!token || !me) {
+      wasWsConnectedRef.current = false;
+      return;
+    }
+
+    if (!wsConnected) {
+      if (wasWsConnectedRef.current) {
+        setTypingByConversation({});
+      }
+      wasWsConnectedRef.current = false;
+      return;
+    }
+
+    const reconnected = wasWsConnectedRef.current === false;
+    wasWsConnectedRef.current = true;
+
+    if (!reconnected) {
+      return;
+    }
+
+    void loadConversations();
+    if (selectedConversationId) {
+      void loadConversationData(selectedConversationId, { includeMembers: false, markRead: false });
+    }
+  }, [loadConversationData, loadConversations, me, selectedConversationId, token, wsConnected]);
 
   const login = useCallback(
     async (incomingToken: string) => {
@@ -403,24 +725,27 @@ export function HermesClient() {
           formData.append("sendAsVoice", "true");
         }
         attachments.forEach((attachment) => formData.append("files", attachment.file));
-        await request(`/api/conversations/${selectedConversationId}/messages/upload`, {
+        const createdMessage = await request<ConversationMessage>(`/api/conversations/${selectedConversationId}/messages/upload`, {
           method: "POST",
           body: formData,
         });
+        invalidatePendingConversationLoad();
+        upsertConversationMessage(createdMessage);
+        applyConversationMessageSummary(createdMessage, { unreadCount: 0 });
       } else {
-        await request(`/api/conversations/${selectedConversationId}/messages`, {
+        const createdMessage = await request<ConversationMessage>(`/api/conversations/${selectedConversationId}/messages`, {
           method: "POST",
           body: JSON.stringify({
             body: body.trim(),
             replyToMessageId: replyToMessageId ?? undefined,
           }),
         });
+        invalidatePendingConversationLoad();
+        upsertConversationMessage(createdMessage);
+        applyConversationMessageSummary(createdMessage, { unreadCount: 0 });
       }
-
-      await loadConversationData(selectedConversationId);
-      await loadConversations();
     },
-    [loadConversationData, loadConversations, request, selectedConversationId],
+    [applyConversationMessageSummary, invalidatePendingConversationLoad, request, selectedConversationId, upsertConversationMessage],
   );
 
   const refreshCurrentConversation = useCallback(async () => {
@@ -433,7 +758,26 @@ export function HermesClient() {
   }, [loadConversationData, loadConversations, selectedConversationId]);
 
   if (booting) {
-    return null;
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "grid",
+          placeItems: "center",
+          background: "linear-gradient(180deg, rgba(17, 19, 25, 0.98), rgba(10, 12, 18, 0.98))",
+          color: "rgba(237, 241, 247, 0.92)",
+          fontFamily: "var(--font-display)",
+          letterSpacing: "0.04em",
+        }}
+      >
+        <div style={{ display: "grid", gap: "10px", justifyItems: "center" }}>
+          <strong>Hermes</strong>
+          <span style={{ color: "rgba(237, 241, 247, 0.64)", fontSize: "0.95rem" }}>
+            Загружаем сессию...
+          </span>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -448,6 +792,17 @@ export function HermesClient() {
           drawerConversation={drawerConversation}
           messages={messages}
           members={members}
+          readReceipts={
+            selectedConversationId
+              ? Object.entries(readByConversation[selectedConversationId] ?? {}).map(([userId, value]) => ({
+                  userId: Number(userId),
+                  displayName: value.displayName,
+                  readAt: value.readAt,
+                  conversationId: selectedConversationId,
+                }))
+              : []
+          }
+          typingNames={selectedTypingNames}
           loadingConversations={loadingConversations}
           loadingConversationData={loadingConversationData}
           onLogout={logout}
@@ -473,6 +828,7 @@ export function HermesClient() {
             }
             return target;
           }}
+          onTypingStateChange={sendTypingState}
           onOpenPhotoViewer={(items, activeIndex) => setPhotoViewer({ items, activeIndex })}
         />
       ) : (

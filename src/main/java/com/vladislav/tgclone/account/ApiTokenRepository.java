@@ -11,4 +11,6 @@ public interface ApiTokenRepository extends JpaRepository<ApiToken, Long> {
     Optional<ApiToken> findFirstByUserAccount_IdAndLabelAndRevokedFalseOrderByCreatedAtDesc(Long userAccountId, String label);
 
     List<ApiToken> findAllByUserAccount_IdAndRevokedFalse(Long userAccountId);
+
+    List<ApiToken> findAllBySessionKeyAndRevokedFalse(String sessionKey);
 }

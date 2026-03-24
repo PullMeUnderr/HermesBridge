@@ -15,6 +15,7 @@ const me: AuthUser = {
   username: "pullmeunderrr",
   displayName: "Vladislav Fatushkin",
   avatarUrl: null,
+  passwordLinked: true,
   telegramLinked: true,
   telegramUserId: "1",
   telegramUsername: "PullMEunderrr",

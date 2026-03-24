@@ -947,7 +947,6 @@ export function HermesClient() {
           onCreateConversation={createConversation}
           onJoinConversation={joinConversation}
           onUpdateProfile={updateProfile}
-          onStartTelegramLink={createTelegramLink}
           onUpdateConversation={updateConversation}
           onDeleteConversation={deleteConversation}
           onCreateInvite={createInvite}

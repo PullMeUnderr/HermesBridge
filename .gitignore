@@ -15,3 +15,7 @@ frontend/tsconfig.tsbuildinfo
 *.mv.db
 *.trace.db
 data/
+.run/
+.tdlight-real/
+tdlight-login-qr-*.png
+tdlight-qr-link-*.txt

@@ -42,6 +42,9 @@ app:
   auth:
     default-tenant-key: ${APP_DEFAULT_TENANT_KEY:main}
     api-token-ttl-days: ${APP_API_TOKEN_TTL_DAYS:365}
+    access-token-ttl-minutes: ${APP_AUTH_ACCESS_TOKEN_TTL_MINUTES:15}
+    refresh-token-ttl-days: ${APP_AUTH_REFRESH_TOKEN_TTL_DAYS:30}
+    refresh-cookie-name: ${APP_AUTH_REFRESH_COOKIE_NAME:tgclone_refresh_token}
     master-token: ${APP_AUTH_MASTER_TOKEN:}
     master-token-username: ${APP_AUTH_MASTER_TOKEN_USERNAME:local_admin}
     master-token-display-name: ${APP_AUTH_MASTER_TOKEN_DISPLAY_NAME:Local Admin}
@@ -57,6 +60,27 @@ app:
     s3-secret-access-key: ${APP_MEDIA_S3_SECRET_ACCESS_KEY:${APP_MEDIA_R2_SECRET_ACCESS_KEY:}}
     s3-region: ${APP_MEDIA_S3_REGION:${APP_MEDIA_R2_REGION:}}
     s3-signed-url-ttl-seconds: ${APP_MEDIA_S3_SIGNED_URL_TTL_SECONDS:900}
+  tdlight:
+    enabled: ${APP_TDLIGHT_ENABLED:false}
+    migration-enabled: ${APP_TDLIGHT_MIGRATION_ENABLED:false}
+    entitlement-required: ${APP_TDLIGHT_ENTITLEMENT_REQUIRED:true}
+    public-channel-client-mode: ${APP_TDLIGHT_PUBLIC_CHANNEL_CLIENT_MODE:STUB}
+    backfill-history-enabled: ${APP_TDLIGHT_BACKFILL_HISTORY_ENABLED:true}
+    public-channel-message-import-limit: ${APP_TDLIGHT_PUBLIC_CHANNEL_MESSAGE_IMPORT_LIMIT:500}
+    imported-post-retention-days: ${APP_TDLIGHT_IMPORTED_POST_RETENTION_DAYS:7}
+    media-import-enabled: ${APP_TDLIGHT_MEDIA_IMPORT_ENABLED:true}
+    max-imported-media-bytes: ${APP_TDLIGHT_MAX_IMPORTED_MEDIA_BYTES:20971520}
+    max-imported-video-duration-seconds: ${APP_TDLIGHT_MAX_IMPORTED_VIDEO_DURATION_SECONDS:180}
+    session-encryption-key: ${APP_TDLIGHT_SESSION_ENCRYPTION_KEY:}
+    library-path: ${APP_TDLIGHT_LIBRARY_PATH:}
+    native-workdir: ${APP_TDLIGHT_NATIVE_WORKDIR:}
+    database-directory: ${APP_TDLIGHT_DATABASE_DIRECTORY:}
+    files-directory: ${APP_TDLIGHT_FILES_DIRECTORY:}
+    api-id: ${APP_TDLIGHT_API_ID:}
+    api-hash: ${APP_TDLIGHT_API_HASH:}
+    system-language-code: ${APP_TDLIGHT_SYSTEM_LANGUAGE_CODE:en}
+    device-model: ${APP_TDLIGHT_DEVICE_MODEL:Hermes Local Dev}
+    application-version: ${APP_TDLIGHT_APPLICATION_VERSION:local-dev}
 
 management:
   endpoints:

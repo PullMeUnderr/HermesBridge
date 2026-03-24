@@ -26,6 +26,10 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
 
     Optional<ConversationMessage> findTopByConversation_IdOrderByCreatedAtDescIdDesc(Long conversationId);
 
+    List<ConversationMessage> findAllByImportedViaAndExpiresAtBefore(String importedVia, Instant threshold);
+
+    List<ConversationMessage> findAllByImportedVia(String importedVia);
+
     @Query("""
         select count(message)
         from ConversationMessage message
@@ -54,5 +58,17 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
     @Query("update ConversationMessage message set message.replyToMessage = null where message.conversation.id = :conversationId")
     void clearReplyReferences(@Param("conversationId") Long conversationId);
 
+    @Modifying
+    @Query("""
+        update ConversationMessage message
+        set message.replyToMessage = null
+        where message.replyToMessage.id in :messageIds
+    """)
+    void clearReplyReferencesForMessageIds(@Param("messageIds") List<Long> messageIds);
+
     void deleteAllByConversation_Id(Long conversationId);
+
+    void deleteAllByIdIn(List<Long> ids);
+
+    boolean existsByConversation_Id(Long conversationId);
 }

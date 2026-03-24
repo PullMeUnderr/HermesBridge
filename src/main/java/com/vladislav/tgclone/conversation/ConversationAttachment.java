@@ -41,8 +41,14 @@ public class ConversationAttachment {
     @Column(name = "storage_key", nullable = false, length = 500)
     private String storageKey;
 
+    @Column(name = "imported_via", length = 50)
+    private String importedVia;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    @Column(name = "expires_at")
+    private Instant expiresAt;
 
     protected ConversationAttachment() {
     }
@@ -93,7 +99,20 @@ public class ConversationAttachment {
         return storageKey;
     }
 
+    public String getImportedVia() {
+        return importedVia;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void markImportedContent(String importedVia, Instant expiresAt) {
+        this.importedVia = importedVia;
+        this.expiresAt = expiresAt;
     }
 }

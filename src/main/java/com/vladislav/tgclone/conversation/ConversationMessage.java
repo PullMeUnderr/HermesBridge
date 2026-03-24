@@ -54,12 +54,18 @@ public class ConversationMessage {
     @Column(nullable = false, columnDefinition = "text")
     private String body;
 
+    @Column(name = "imported_via", length = 50)
+    private String importedVia;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "reply_to_message_id")
     private ConversationMessage replyToMessage;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    @Column(name = "expires_at")
+    private Instant expiresAt;
 
     @OneToMany(mappedBy = "message", fetch = FetchType.EAGER)
     private List<ConversationAttachment> attachments = new ArrayList<>();
@@ -160,8 +166,21 @@ public class ConversationMessage {
         return createdAt;
     }
 
+    public String getImportedVia() {
+        return importedVia;
+    }
+
+    public Instant getExpiresAt() {
+        return expiresAt;
+    }
+
     public List<ConversationAttachment> getAttachments() {
         return Collections.unmodifiableList(attachments);
+    }
+
+    public void markImportedContent(String importedVia, Instant expiresAt) {
+        this.importedVia = importedVia;
+        this.expiresAt = expiresAt;
     }
 
     void addAttachment(ConversationAttachment attachment) {

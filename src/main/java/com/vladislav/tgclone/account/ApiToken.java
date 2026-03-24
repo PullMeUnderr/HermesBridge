@@ -35,6 +35,9 @@ public class ApiToken {
     @Column(nullable = false, length = 100)
     private String label;
 
+    @Column(name = "session_key", length = 64)
+    private String sessionKey;
+
     @Column(nullable = false)
     private boolean revoked;
 
@@ -56,6 +59,7 @@ public class ApiToken {
         String tokenPrefix,
         String plainTextToken,
         String label,
+        String sessionKey,
         boolean revoked,
         Instant expiresAt,
         Instant createdAt
@@ -65,6 +69,7 @@ public class ApiToken {
         this.tokenPrefix = tokenPrefix;
         this.plainTextToken = plainTextToken;
         this.label = label;
+        this.sessionKey = sessionKey;
         this.revoked = revoked;
         this.expiresAt = expiresAt;
         this.createdAt = createdAt;
@@ -92,6 +97,10 @@ public class ApiToken {
 
     public String getLabel() {
         return label;
+    }
+
+    public String getSessionKey() {
+        return sessionKey;
     }
 
     public boolean isRevoked() {

@@ -12,20 +12,23 @@ public class TelegramRegistrationService {
     private static final int MAX_USERNAME_LENGTH = 40;
 
     private final UserAccountRepository userAccountRepository;
-    private final TelegramIdentityRepository telegramIdentityRepository;
+    private final AccountIdentityService accountIdentityService;
+    private final AccountIdentityRepository accountIdentityRepository;
     private final ApiTokenService apiTokenService;
     private final AccountProperties accountProperties;
     private final Clock clock;
 
     public TelegramRegistrationService(
         UserAccountRepository userAccountRepository,
-        TelegramIdentityRepository telegramIdentityRepository,
+        AccountIdentityService accountIdentityService,
+        AccountIdentityRepository accountIdentityRepository,
         ApiTokenService apiTokenService,
         AccountProperties accountProperties,
         Clock clock
     ) {
         this.userAccountRepository = userAccountRepository;
-        this.telegramIdentityRepository = telegramIdentityRepository;
+        this.accountIdentityService = accountIdentityService;
+        this.accountIdentityRepository = accountIdentityRepository;
         this.apiTokenService = apiTokenService;
         this.accountProperties = accountProperties;
         this.clock = clock;
@@ -46,7 +49,10 @@ public class TelegramRegistrationService {
         }
 
         Instant now = clock.instant();
-        TelegramIdentity identity = telegramIdentityRepository.findByTelegramUserId(telegramUserId).orElse(null);
+        AccountIdentity identity = accountIdentityRepository.findByProviderAndProviderUserKey(
+            AccountIdentityProvider.TELEGRAM.value(),
+            telegramUserId.trim()
+        ).orElse(null);
         boolean created = identity == null;
 
         UserAccount userAccount;
@@ -59,21 +65,16 @@ public class TelegramRegistrationService {
                 now
             );
             userAccountRepository.save(userAccount);
-
-            identity = new TelegramIdentity(
-                userAccount,
-                telegramUserId.trim(),
-                normalizeNullable(telegramUsername),
-                privateChatId.trim(),
-                now,
-                now
-            );
-            telegramIdentityRepository.save(identity);
         } else {
             userAccount = identity.getUserAccount();
-            userAccount.updateDisplayName(normalizeDisplayName(displayName));
-            identity.touch(normalizeNullable(telegramUsername), privateChatId.trim(), now);
         }
+
+        accountIdentityService.ensureTelegramIdentity(
+            userAccount,
+            telegramUserId.trim(),
+            normalizeNullable(telegramUsername),
+            privateChatId.trim()
+        );
 
         IssuedApiToken apiToken = apiTokenService.issueOrReuseTelegramToken(userAccount);
         return new TelegramRegistrationResult(

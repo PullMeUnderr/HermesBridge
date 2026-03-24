@@ -6,6 +6,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record AccountProperties(
     String defaultTenantKey,
     long apiTokenTtlDays,
+    long accessTokenTtlMinutes,
+    long refreshTokenTtlDays,
+    String refreshCookieName,
     String masterToken,
     String masterTokenUsername,
     String masterTokenDisplayName

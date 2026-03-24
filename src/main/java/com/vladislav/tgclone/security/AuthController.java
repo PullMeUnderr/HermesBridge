@@ -9,6 +9,7 @@ import com.vladislav.tgclone.account.TelegramIdentity;
 import com.vladislav.tgclone.account.TelegramLinkService;
 import com.vladislav.tgclone.account.TelegramLinkToken;
 import com.vladislav.tgclone.account.UserAccountService;
+import com.vladislav.tgclone.tdlight.connection.TdlightAccountBindingService;
 import com.vladislav.tgclone.common.NotFoundException;
 import java.io.IOException;
 import com.vladislav.tgclone.media.MediaStorageService;
@@ -43,6 +44,7 @@ public class AuthController {
     private final AccountProperties accountProperties;
     private final UserAccountService userAccountService;
     private final MediaStorageService mediaStorageService;
+    private final TdlightAccountBindingService tdlightAccountBindingService;
 
     public AuthController(
         ApiTokenService apiTokenService,
@@ -50,7 +52,8 @@ public class AuthController {
         TelegramLinkService telegramLinkService,
         AccountProperties accountProperties,
         UserAccountService userAccountService,
-        MediaStorageService mediaStorageService
+        MediaStorageService mediaStorageService,
+        TdlightAccountBindingService tdlightAccountBindingService
     ) {
         this.apiTokenService = apiTokenService;
         this.accountIdentityService = accountIdentityService;
@@ -58,6 +61,7 @@ public class AuthController {
         this.accountProperties = accountProperties;
         this.userAccountService = userAccountService;
         this.mediaStorageService = mediaStorageService;
+        this.tdlightAccountBindingService = tdlightAccountBindingService;
     }
 
     @PostMapping("/session")
@@ -284,6 +288,9 @@ public class AuthController {
     }
 
     private AuthenticatedUserResponse toResponse(UserAccount userAccount, TelegramIdentity telegramIdentity) {
+        TdlightAccountBindingService.TdlightBoundAccount tdlightBoundAccount = telegramIdentity == null
+            ? tdlightAccountBindingService.findBoundAccount(userAccount).orElse(null)
+            : null;
         return new AuthenticatedUserResponse(
             userAccount.getId(),
             userAccount.getTenantKey(),
@@ -291,11 +298,19 @@ public class AuthController {
             userAccount.getDisplayName(),
             userAccountService.buildOwnAvatarUrl(userAccount),
             accountIdentityService.hasPasswordIdentity(userAccount.getId()),
-            telegramIdentity != null,
-            telegramIdentity == null ? null : telegramIdentity.getTelegramUserId(),
-            telegramIdentity == null ? null : telegramIdentity.getTelegramUsername(),
-            telegramIdentity == null ? true : userAccountService.isOnline(telegramIdentity),
-            telegramIdentity == null ? null : telegramIdentity.getLastSeenAt()
+            telegramIdentity != null || tdlightBoundAccount != null,
+            telegramIdentity == null
+                ? tdlightBoundAccount == null ? null : tdlightBoundAccount.telegramUserId()
+                : telegramIdentity.getTelegramUserId(),
+            telegramIdentity == null
+                ? tdlightBoundAccount == null ? null : tdlightBoundAccount.telegramUsername()
+                : telegramIdentity.getTelegramUsername(),
+            telegramIdentity == null
+                ? tdlightBoundAccount != null
+                : userAccountService.isOnline(telegramIdentity),
+            telegramIdentity == null
+                ? tdlightBoundAccount == null ? null : tdlightBoundAccount.verifiedAt()
+                : telegramIdentity.getLastSeenAt()
         );
     }
 

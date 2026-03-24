@@ -6,15 +6,44 @@ import styles from "./AuthScreen.module.scss";
 interface AuthScreenProps {
   initialToken: string;
   submitting: boolean;
-  onSubmit: (token: string) => Promise<void>;
+  onTokenSubmit: (token: string) => Promise<void>;
+  onPasswordLogin: (payload: { username: string; password: string }) => Promise<void>;
+  onRegister: (payload: { username: string; displayName: string; password: string }) => Promise<void>;
 }
 
-export function AuthScreen({ initialToken, submitting, onSubmit }: AuthScreenProps) {
+export function AuthScreen({
+  initialToken,
+  submitting,
+  onTokenSubmit,
+  onPasswordLogin,
+  onRegister,
+}: AuthScreenProps) {
   const [token, setToken] = useState(initialToken);
+  const [mode, setMode] = useState<"token" | "login" | "register">("login");
+  const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleTokenSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await onSubmit(token.trim());
+    await onTokenSubmit(token.trim());
+  }
+
+  async function handlePasswordLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await onPasswordLogin({
+      username: username.trim(),
+      password,
+    });
+  }
+
+  async function handleRegister(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await onRegister({
+      username: username.trim(),
+      displayName: displayName.trim(),
+      password,
+    });
   }
 
   return (
@@ -55,16 +84,16 @@ export function AuthScreen({ initialToken, submitting, onSubmit }: AuthScreenPro
 
           <article className={styles.featureGrid}>
             <div>
-              <strong>Регистрация через бота</strong>
-              <span>Вход по токену без ручной настройки.</span>
+              <strong>Hermes account</strong>
+              <span>Регистрация через сайт без обязательного Telegram.</span>
             </div>
             <div>
-              <strong>Синхронизация чатов</strong>
-              <span>Один диалог для Hermes и Telegram.</span>
+              <strong>Telegram как канал</strong>
+              <span>Бот остаётся рабочим входом и integration-слоем.</span>
             </div>
             <div>
-              <strong>Медиа и роли</strong>
-              <span>Фото, видео, голосовые и доступ по ролям.</span>
+              <strong>Единый account layer</strong>
+              <span>Сессии сайта и identity не смешиваются между собой.</span>
             </div>
           </article>
         </div>
@@ -73,27 +102,90 @@ export function AuthScreen({ initialToken, submitting, onSubmit }: AuthScreenPro
       <section className={styles.card}>
         <div className={styles.eyebrow}>Вход</div>
         <h2>Открой Hermes</h2>
-        <p className={styles.muted}>
-          Вставь токен от <strong>@HermesBridgeBot</strong>, чтобы открыть клиент.
-        </p>
-        <form className={styles.form} onSubmit={handleSubmit}>
-          <label className={styles.field}>
-            <span>Токен доступа</span>
-            <textarea
-              rows={4}
-              placeholder="tgc_..."
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-            />
-          </label>
-          <button type="submit" disabled={submitting}>
-            {submitting ? "Проверяем..." : "Войти по токену"}
+        <p className={styles.muted}>Теперь можно войти через Hermes account или через Telegram bootstrap token.</p>
+        <div className={styles.segmented}>
+          <button type="button" className={mode === "login" ? styles.segmentActive : ""} onClick={() => setMode("login")}>
+            Hermes login
           </button>
-        </form>
+          <button
+            type="button"
+            className={mode === "register" ? styles.segmentActive : ""}
+            onClick={() => setMode("register")}
+          >
+            Регистрация
+          </button>
+          <button type="button" className={mode === "token" ? styles.segmentActive : ""} onClick={() => setMode("token")}>
+            Telegram token
+          </button>
+        </div>
+
+        {mode === "token" && (
+          <form className={styles.form} onSubmit={handleTokenSubmit}>
+            <label className={styles.field}>
+              <span>Bootstrap token</span>
+              <textarea
+                rows={4}
+                placeholder="tgc_..."
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+              />
+            </label>
+            <button type="submit" disabled={submitting}>
+              {submitting ? "Проверяем..." : "Войти по токену"}
+            </button>
+          </form>
+        )}
+
+        {mode === "login" && (
+          <form className={styles.form} onSubmit={handlePasswordLogin}>
+            <label className={styles.field}>
+              <span>Hermes username</span>
+              <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="username" />
+            </label>
+            <label className={styles.field}>
+              <span>Пароль</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Минимум 8 символов"
+              />
+            </label>
+            <button type="submit" disabled={submitting}>
+              {submitting ? "Проверяем..." : "Войти в Hermes"}
+            </button>
+          </form>
+        )}
+
+        {mode === "register" && (
+          <form className={styles.form} onSubmit={handleRegister}>
+            <label className={styles.field}>
+              <span>Имя в Hermes</span>
+              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Hermes User" />
+            </label>
+            <label className={styles.field}>
+              <span>Hermes username</span>
+              <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="username" />
+            </label>
+            <label className={styles.field}>
+              <span>Пароль</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Минимум 8 символов"
+              />
+            </label>
+            <button type="submit" disabled={submitting}>
+              {submitting ? "Создаём..." : "Создать Hermes account"}
+            </button>
+          </form>
+        )}
         <div className={styles.note}>
           <strong>Первый вход</strong>
           <p>
-            Если токена ещё нет, открой бота, нажми <strong>/start</strong> и вставь выданный ключ сюда.
+            Если нужен Telegram-first flow, он остаётся рабочим: открой бота, нажми <strong>/start</strong> и вставь
+            выданный `tgc_...` токен. Если начинаешь с сайта, Telegram можно привязать позже.
           </p>
         </div>
       </section>

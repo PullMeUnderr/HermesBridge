@@ -2,9 +2,9 @@ package com.vladislav.tgclone.account;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,7 +26,10 @@ class TelegramRegistrationServiceTest {
     private UserAccountRepository userAccountRepository;
 
     @Mock
-    private TelegramIdentityRepository telegramIdentityRepository;
+    private AccountIdentityService accountIdentityService;
+
+    @Mock
+    private AccountIdentityRepository accountIdentityRepository;
 
     @Mock
     private ApiTokenService apiTokenService;
@@ -37,16 +40,17 @@ class TelegramRegistrationServiceTest {
     void setUp() {
         telegramRegistrationService = new TelegramRegistrationService(
             userAccountRepository,
-            telegramIdentityRepository,
+            accountIdentityService,
+            accountIdentityRepository,
             apiTokenService,
-            new AccountProperties("main", 365, null, null, null),
+            new AccountProperties("main", 365, 15, 30, "tgclone_refresh_token", null, null, null),
             Clock.fixed(Instant.parse("2026-03-16T12:00:00Z"), ZoneOffset.UTC)
         );
     }
 
     @Test
     void registerOrRefreshCreatesNewUserAndToken() {
-        when(telegramIdentityRepository.findByTelegramUserId("42")).thenReturn(Optional.empty());
+        when(accountIdentityRepository.findByProviderAndProviderUserKey("telegram", "42")).thenReturn(Optional.empty());
         when(userAccountRepository.existsByUsername("alice")).thenReturn(false);
         when(apiTokenService.issueOrReuseTelegramToken(any(UserAccount.class))).thenReturn(
             new IssuedApiToken("plain-token", Instant.parse("2027-03-16T12:00:00Z"), true)
@@ -66,23 +70,27 @@ class TelegramRegistrationServiceTest {
         assertEquals("plain-token", result.plainTextToken());
         assertTrue(result.tokenCreatedNew());
         verify(userAccountRepository).save(any(UserAccount.class));
-        verify(telegramIdentityRepository).save(any(TelegramIdentity.class));
+        verify(accountIdentityService).ensureTelegramIdentity(any(UserAccount.class), eq("42"), eq("alice"), eq("100500"));
     }
 
     @Test
-    void registerOrRefreshUpdatesExistingIdentityAndReusesToken() {
+    void registerOrRefreshReusesExistingIdentityAndToken() {
         UserAccount existingUser = new UserAccount("main", "telegram_42", "Old Name", true, Instant.EPOCH);
         ReflectionTestUtils.setField(existingUser, "id", 7L);
 
-        TelegramIdentity existingIdentity = new TelegramIdentity(
+        AccountIdentity existingIdentity = new AccountIdentity(
             existingUser,
+            "telegram",
             "42",
+            null,
             "old_username",
             "123",
             Instant.EPOCH,
+            Instant.EPOCH,
             Instant.EPOCH
         );
-        when(telegramIdentityRepository.findByTelegramUserId("42")).thenReturn(Optional.of(existingIdentity));
+        when(accountIdentityRepository.findByProviderAndProviderUserKey("telegram", "42"))
+            .thenReturn(Optional.of(existingIdentity));
         when(apiTokenService.issueOrReuseTelegramToken(existingUser)).thenReturn(
             new IssuedApiToken("rotated-token", Instant.parse("2027-03-16T12:00:00Z"), false)
         );
@@ -97,11 +105,9 @@ class TelegramRegistrationServiceTest {
         assertFalse(result.created());
         assertEquals(7L, result.userId());
         assertEquals("telegram_42", result.username());
-        assertEquals("New Name", result.displayName());
+        assertEquals("Old Name", result.displayName());
         assertEquals("rotated-token", result.plainTextToken());
         assertFalse(result.tokenCreatedNew());
-        assertNotNull(existingIdentity.getLastSeenAt());
-        assertEquals("777", existingIdentity.getPrivateChatId());
-        assertEquals("new_username", existingIdentity.getTelegramUsername());
+        verify(accountIdentityService).ensureTelegramIdentity(existingUser, "42", "new_username", "777");
     }
 }

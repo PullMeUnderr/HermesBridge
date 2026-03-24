@@ -6,6 +6,7 @@ export interface AuthUser {
   username: string;
   displayName: string;
   avatarUrl: string | null;
+  passwordLinked: boolean;
   telegramLinked: boolean;
   telegramUserId: string | null;
   telegramUsername: string | null;

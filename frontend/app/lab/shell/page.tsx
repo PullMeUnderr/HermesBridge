@@ -86,14 +86,20 @@ export default function ShellLabPage() {
       typingNames={[]}
       loadingConversations={false}
       loadingConversationData={false}
+      availableChannels={[]}
+      loadingAvailableChannels={false}
       onLogout={() => {}}
       onRefreshConversations={noop}
+      onRefreshAvailableChannels={noop}
+      onSubscribeChannel={noop}
+      onSubscribeChannels={noop}
       onSelectConversation={() => {}}
       onOpenDrawer={() => {}}
       onCloseDrawer={() => {}}
       onCreateConversation={noop}
       onJoinConversation={noop}
       onUpdateProfile={noop}
+      onRefreshSessionState={noop}
       onUpdateConversation={noop}
       onDeleteConversation={noop}
       onCreateInvite={noop}

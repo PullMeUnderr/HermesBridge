@@ -7,6 +7,7 @@ import com.vladislav.tgclone.tdlight.condition.ConditionalOnTdlightRealMode;
 import com.vladislav.tgclone.tdlight.connection.TdlightConnection;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import org.springframework.stereotype.Service;
 
@@ -14,6 +15,9 @@ import org.springframework.stereotype.Service;
 @ConditionalOnTdlightRealMode
 public class RealTdlightPublicChannelClient implements TdlightPublicChannelClient {
 
+    private static final long CHANNEL_LIST_LOCK_TIMEOUT_SECONDS = 8L;
+    private static final long CHANNEL_RESOLVE_LOCK_TIMEOUT_SECONDS = 5L;
+    private static final long CHANNEL_AVATAR_LOCK_TIMEOUT_SECONDS = 2L;
     private final ReentrantLock runtimeOperationLock = new ReentrantLock();
 
     private final TdlightProperties tdlightProperties;
@@ -36,7 +40,19 @@ public class RealTdlightPublicChannelClient implements TdlightPublicChannelClien
         return withSession(
             connection,
             runtimeConfiguration,
-            sessionHandle -> tdlightRuntimeAdapter.resolvePublicChannel(sessionHandle, reference)
+            sessionHandle -> tdlightRuntimeAdapter.resolvePublicChannel(sessionHandle, reference),
+            CHANNEL_RESOLVE_LOCK_TIMEOUT_SECONDS
+        );
+    }
+
+    @Override
+    public List<TdlightAvailableChannel> listAvailablePublicChannels(TdlightConnection connection) {
+        TdlightRuntimeConfiguration runtimeConfiguration = requireRuntimeConfiguration();
+        return withSession(
+            connection,
+            runtimeConfiguration,
+            tdlightRuntimeAdapter::listAvailablePublicChannels,
+            CHANNEL_LIST_LOCK_TIMEOUT_SECONDS
         );
     }
 
@@ -67,6 +83,20 @@ public class RealTdlightPublicChannelClient implements TdlightPublicChannelClien
             connection,
             runtimeConfiguration,
             sessionHandle -> tdlightRuntimeAdapter.fetchMedia(sessionHandle, channel, post, mediaReference)
+        );
+    }
+
+    @Override
+    public TdlightFetchedMedia fetchChannelAvatar(
+        TdlightConnection connection,
+        TdlightResolvedChannel channel
+    ) {
+        TdlightRuntimeConfiguration runtimeConfiguration = requireRuntimeConfiguration();
+        return withSession(
+            connection,
+            runtimeConfiguration,
+            sessionHandle -> tdlightRuntimeAdapter.fetchChannelAvatar(sessionHandle, channel),
+            CHANNEL_AVATAR_LOCK_TIMEOUT_SECONDS
         );
     }
 
@@ -126,6 +156,37 @@ public class RealTdlightPublicChannelClient implements TdlightPublicChannelClien
             }
         } finally {
             runtimeOperationLock.unlock();
+        }
+    }
+
+    private <T> T withSession(
+        TdlightConnection connection,
+        TdlightRuntimeConfiguration runtimeConfiguration,
+        TdlightRuntimeOperation<T> operation,
+        long lockTimeoutSeconds
+    ) {
+        boolean lockAcquired = false;
+        try {
+            lockAcquired = runtimeOperationLock.tryLock(lockTimeoutSeconds, TimeUnit.SECONDS);
+            if (!lockAcquired) {
+                throw new IllegalStateException("TDLight runtime is busy, please retry channel listing");
+            }
+            TdlightRuntimeAdapter.TdlightRuntimeSessionContext sessionContext = tdlightRuntimeAdapter.openSession(
+                connection,
+                runtimeConfiguration
+            );
+            try {
+                return operation.execute(sessionContext);
+            } finally {
+                tdlightRuntimeAdapter.closeSession(sessionContext);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("TDLight runtime wait was interrupted", exception);
+        } finally {
+            if (lockAcquired) {
+                runtimeOperationLock.unlock();
+            }
         }
     }
 

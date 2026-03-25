@@ -54,6 +54,13 @@ public class NoopTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
     }
 
     @Override
+    public List<TdlightPublicChannelClient.TdlightAvailableChannel> listAvailablePublicChannels(
+        TdlightRuntimeSessionContext sessionContext
+    ) {
+        throw notImplemented("listAvailablePublicChannels", sessionContext);
+    }
+
+    @Override
     public List<TdlightPublicChannelClient.TdlightFetchedPost> fetchNewPosts(
         TdlightRuntimeSessionContext sessionContext,
         TdlightPublicChannelClient.TdlightResolvedChannel channel,
@@ -71,6 +78,14 @@ public class NoopTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
         TdlightPublicChannelClient.TdlightFetchedMediaReference mediaReference
     ) {
         throw notImplemented("fetchMedia", sessionContext);
+    }
+
+    @Override
+    public TdlightPublicChannelClient.TdlightFetchedMedia fetchChannelAvatar(
+        TdlightRuntimeSessionContext sessionContext,
+        TdlightPublicChannelClient.TdlightResolvedChannel channel
+    ) {
+        throw notImplemented("fetchChannelAvatar", sessionContext);
     }
 
     @Override

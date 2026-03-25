@@ -37,9 +37,10 @@ public class DefaultTdlightPublicChannelGateway implements TdlightPublicChannelG
                 query.activatedAt(),
                 query.lastSeenRemoteMessageId(),
                 query.backfillHistoryEnabled(),
+                query.initialHistoricalPostCount(),
                 query.includeMedia()
             ),
-            query.messageLimit()
+            query.messageLimit() + Math.max(0, query.initialHistoricalPostCount())
         );
 
         return new TdlightPublicChannelPayload(
@@ -58,18 +59,8 @@ public class DefaultTdlightPublicChannelGateway implements TdlightPublicChannelG
         TdlightPublicChannelClient.TdlightFetchedPost post,
         boolean includeMedia
     ) {
-        List<TdlightPublicMediaPayload> media = includeMedia && post.mediaReferences() != null
-            ? post.mediaReferences().stream()
-                .map(reference -> tdlightPublicChannelClient.fetchMedia(connection, channel, post, reference))
-                .filter(item -> item != null && item.content() != null && item.content().length > 0)
-                .map(item -> new TdlightPublicMediaPayload(
-                    item.fileName(),
-                    item.mimeType(),
-                    item.sizeBytes(),
-                    item.durationSeconds(),
-                    item.content()
-                ))
-                .toList()
+        List<TdlightPublicMediaPayload> media = includeMedia
+            ? resolvePostMedia(connection, channel, post)
             : List.of();
 
         return new TdlightPublicPostPayload(
@@ -80,5 +71,40 @@ public class DefaultTdlightPublicChannelGateway implements TdlightPublicChannelG
             post.publishedAt(),
             media
         );
+    }
+
+    private List<TdlightPublicMediaPayload> resolvePostMedia(
+        TdlightConnection connection,
+        TdlightPublicChannelClient.TdlightResolvedChannel channel,
+        TdlightPublicChannelClient.TdlightFetchedPost post
+    ) {
+        if (post.media() != null && !post.media().isEmpty()) {
+            return post.media().stream()
+                .filter(item -> item != null && item.content() != null && item.content().length > 0)
+                .map(item -> new TdlightPublicMediaPayload(
+                    item.fileName(),
+                    item.mimeType(),
+                    item.sizeBytes(),
+                    item.durationSeconds(),
+                    item.content()
+                ))
+                .toList();
+        }
+
+        if (post.mediaReferences() == null || post.mediaReferences().isEmpty()) {
+            return List.of();
+        }
+
+        return post.mediaReferences().stream()
+            .map(reference -> tdlightPublicChannelClient.fetchMedia(connection, channel, post, reference))
+            .filter(item -> item != null && item.content() != null && item.content().length > 0)
+            .map(item -> new TdlightPublicMediaPayload(
+                item.fileName(),
+                item.mimeType(),
+                item.sizeBytes(),
+                item.durationSeconds(),
+                item.content()
+            ))
+            .toList();
     }
 }

@@ -156,6 +156,7 @@ public class DefaultTdlightIngestionCoordinator implements TdlightIngestionCoord
             TdlightIngestionPolicy policy = new TdlightIngestionPolicy(
                 tdlightProperties.backfillHistoryEnabled(),
                 tdlightProperties.publicChannelMessageImportLimit(),
+                0,
                 tdlightProperties.importedPostRetentionDays(),
                 tdlightProperties.mediaImportEnabled(),
                 tdlightProperties.maxImportedMediaBytes(),

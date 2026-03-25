@@ -2,13 +2,13 @@ package com.vladislav.tgclone.config.tdlight;
 
 import com.vladislav.tgclone.tdlight.TdlightProperties;
 import com.vladislav.tgclone.tdlight.condition.ConditionalOnTdlightRealMode;
+import com.vladislav.tgclone.tdlight.migration.ClasspathTdlightNativeLibraryBootstrap;
 import com.vladislav.tgclone.tdlight.migration.DefaultTdlightSessionFactory;
 import com.vladislav.tgclone.tdlight.migration.SdkTdlightRuntimeAdapter;
 import com.vladislav.tgclone.tdlight.migration.InMemoryTdlightSessionSecretStore;
 import com.vladislav.tgclone.tdlight.migration.InMemoryTdlightSessionStateStore;
 import com.vladislav.tgclone.tdlight.migration.JpaTdlightSessionSecretStore;
 import com.vladislav.tgclone.tdlight.migration.JpaTdlightSessionStateStore;
-import com.vladislav.tgclone.tdlight.migration.NoopTdlightNativeLibraryBootstrap;
 import com.vladislav.tgclone.tdlight.migration.RealTdlightPublicChannelClient;
 import com.vladislav.tgclone.tdlight.migration.TdlightNativeLibraryBootstrap;
 import com.vladislav.tgclone.tdlight.migration.TdlightQrAuthorizationService;
@@ -64,7 +64,7 @@ class TdlightRealConfiguration {
 
     @Bean
     TdlightNativeLibraryBootstrap tdlightNativeLibraryBootstrap() {
-        return new NoopTdlightNativeLibraryBootstrap();
+        return new ClasspathTdlightNativeLibraryBootstrap();
     }
 
     @Bean
@@ -97,6 +97,8 @@ class TdlightRealConfiguration {
         TdlightConnectionRepository tdlightConnectionRepository,
         TdlightAccountBindingService tdlightAccountBindingService,
         TdlightNativeLibraryBootstrap tdlightNativeLibraryBootstrap,
+        TdlightSessionStateStore tdlightSessionStateStore,
+        TdlightSessionSecretStore tdlightSessionSecretStore,
         TdlightProperties tdlightProperties,
         Clock clock
     ) {
@@ -104,6 +106,8 @@ class TdlightRealConfiguration {
             tdlightConnectionRepository,
             tdlightAccountBindingService,
             tdlightNativeLibraryBootstrap,
+            tdlightSessionStateStore,
+            tdlightSessionSecretStore,
             tdlightProperties,
             clock
         );

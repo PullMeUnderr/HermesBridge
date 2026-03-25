@@ -1,10 +1,13 @@
 "use client";
 
+import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./Sidebar.module.scss";
 import { DrawerPanel } from "@/components/DrawerPanel/DrawerPanel";
 import { Avatar } from "@/components/ui/Avatar";
-import { formatClock, renderPresenceLabel } from "@/lib/format";
+import { displayConversationTitle, formatClock, isTelegramConversationTitle, renderPresenceLabel } from "@/lib/format";
 import type { AuthUser, ConversationSummary, DrawerMode } from "@/types/api";
+
+type SidebarTab = "chats" | "channels";
 
 interface SidebarProps {
   token: string;
@@ -31,6 +34,7 @@ interface SidebarProps {
     avatar?: File | null;
     removeAvatar?: boolean;
   }) => Promise<void>;
+  onRefreshSessionState: () => Promise<void>;
   onUpdateConversation: (
     conversationId: number,
     payload: { title: string; avatar?: File | null; removeAvatar?: boolean; muted?: boolean },
@@ -58,10 +62,37 @@ export function Sidebar({
   onCreateConversation,
   onJoinConversation,
   onUpdateProfile,
+  onRefreshSessionState,
   onUpdateConversation,
   onDeleteConversation,
 }: SidebarProps) {
   const drawerOpen = inlineDrawer && drawerMode !== null;
+  const [activeTab, setActiveTab] = useState<SidebarTab>("chats");
+  const previousSelectedConversationIdRef = useRef<number | null>(null);
+
+  const isChannelConversation = (conversation: ConversationSummary) => isTelegramConversationTitle(conversation.title);
+
+  const chatConversations = useMemo(
+    () => conversations.filter((conversation) => !isChannelConversation(conversation)),
+    [conversations],
+  );
+  const channelConversations = useMemo(
+    () => conversations.filter((conversation) => isChannelConversation(conversation)),
+    [conversations],
+  );
+  const visibleConversations = activeTab === "channels" ? channelConversations : chatConversations;
+
+  useEffect(() => {
+    if (!selectedConversationId || previousSelectedConversationIdRef.current === selectedConversationId) {
+      return;
+    }
+    const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId);
+    if (!selectedConversation) {
+      return;
+    }
+    previousSelectedConversationIdRef.current = selectedConversationId;
+    setActiveTab(isChannelConversation(selectedConversation) ? "channels" : "chats");
+  }, [conversations, selectedConversationId]);
 
   return (
     <aside className={styles.sidebar} data-drawer-open={drawerOpen}>
@@ -110,15 +141,21 @@ export function Sidebar({
                 open={Boolean(drawerMode)}
                 inline
                 mode={drawerMode}
-                me={me}
-                conversation={drawerConversation}
-                onClose={onCloseDrawer}
-                onCreateConversation={onCreateConversation}
-                onJoinConversation={onJoinConversation}
-                onUpdateProfile={onUpdateProfile}
-                onUpdateConversation={onUpdateConversation}
-                onDeleteConversation={onDeleteConversation}
-              />
+              me={me}
+              conversation={drawerConversation}
+              onClose={onCloseDrawer}
+              onCreateConversation={onCreateConversation}
+              onJoinConversation={onJoinConversation}
+              onUpdateProfile={onUpdateProfile}
+              onRefreshSessionState={onRefreshSessionState}
+              availableChannels={[]}
+              loadingAvailableChannels={false}
+              onRefreshAvailableChannels={async () => {}}
+              onSubscribeChannel={async () => {}}
+              onSubscribeChannels={async () => {}}
+              onUpdateConversation={onUpdateConversation}
+              onDeleteConversation={onDeleteConversation}
+            />
             </section>
           )}
 
@@ -126,24 +163,56 @@ export function Sidebar({
             <div className={styles.panelHead}>
               <div>
                 <div className={styles.caption}>Навигация</div>
-                <h3>Твои чаты</h3>
+                <h3>{activeTab === "channels" ? "Твои каналы" : "Твои чаты"}</h3>
               </div>
-              <button className={styles.iconButton} type="button" onClick={() => void onRefresh()}>
+              <button
+                className={styles.iconButton}
+                type="button"
+                onClick={() => void onRefresh()}
+              >
                 ↻
               </button>
             </div>
 
+            <div className={styles.tabRow} role="tablist" aria-label="Тип диалогов">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "chats"}
+                className={`${styles.tabButton} ${activeTab === "chats" ? styles.tabButtonActive : ""}`}
+                onClick={() => setActiveTab("chats")}
+              >
+                Чаты
+                <span className={styles.tabCount}>{chatConversations.length}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "channels"}
+                className={`${styles.tabButton} ${activeTab === "channels" ? styles.tabButtonActive : ""}`}
+                onClick={() => setActiveTab("channels")}
+              >
+                Каналы
+                <span className={styles.tabCount}>{channelConversations.length}</span>
+              </button>
+            </div>
+
             <div className={styles.list}>
-              {conversations.map((conversation) => (
+              {visibleConversations.map((conversation) => (
                 <div
                   key={conversation.id}
                   className={`${styles.row} ${conversation.id === selectedConversationId ? styles.active : ""}`}
                 >
                   <button type="button" className={styles.rowMain} onClick={() => onSelectConversation(conversation.id)}>
-                    <Avatar token={token} name={conversation.title} src={conversation.avatarUrl} size="md" />
+                    <Avatar
+                      token={token}
+                      name={displayConversationTitle(conversation.title)}
+                      src={conversation.avatarUrl}
+                      size="md"
+                    />
                     <div className={styles.rowCopy}>
                       <div className={styles.rowTop}>
-                        <strong>{conversation.title}</strong>
+                        <strong>{displayConversationTitle(conversation.title)}</strong>
                         <span>{formatClock(conversation.lastMessageCreatedAt || conversation.createdAt)}</span>
                       </div>
                       <div className={styles.rowBottom}>
@@ -156,16 +225,18 @@ export function Sidebar({
                           </span>
                         )}
                       </div>
-                      <div className={styles.rowMeta}>
-                        <span className={styles.role}>{conversation.membershipRole}</span>
-                      </div>
+                      {!isChannelConversation(conversation) && (
+                        <div className={styles.rowMeta}>
+                          <span className={styles.role}>{conversation.membershipRole}</span>
+                        </div>
+                      )}
                     </div>
                   </button>
                   <div className={styles.rowActions}>
                     <button
                       type="button"
                       className={styles.menuButton}
-                      aria-label={`Открыть настройки чата ${conversation.title}`}
+                      aria-label={`Открыть настройки ${isChannelConversation(conversation) ? "канала" : "чата"} ${conversation.title}`}
                       onClick={() => onOpenConversationSettings(conversation.id)}
                     >
                       …
@@ -174,10 +245,14 @@ export function Sidebar({
                 </div>
               ))}
 
-              {!loading && conversations.length === 0 && (
+              {!loading && visibleConversations.length === 0 && (
                 <div className={styles.empty}>
-                  <strong>Пока пусто</strong>
-                  <span>Создай чат или зайди по инвайт-коду.</span>
+                  <strong>{activeTab === "channels" ? "Каналов пока нет" : "Чатов пока нет"}</strong>
+                  <span>
+                    {activeTab === "channels"
+                      ? "Подключённые Telegram-каналы появятся в этой вкладке."
+                      : "Создай чат или зайди по инвайт-коду."}
+                  </span>
                 </div>
               )}
             </div>

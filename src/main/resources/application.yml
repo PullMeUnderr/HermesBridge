@@ -5,9 +5,14 @@ spring:
     exclude:
       - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   datasource:
-    url: ${APP_DATASOURCE_URL:jdbc:h2:mem:tgclone;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
+    url: ${APP_DATASOURCE_URL:jdbc:h2:file:./data/h2/tgclone;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
     username: ${APP_DATASOURCE_USERNAME:sa}
     password: ${APP_DATASOURCE_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${APP_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:20}
+      minimum-idle: ${APP_DATASOURCE_HIKARI_MINIMUM_IDLE:2}
+      connection-timeout: ${APP_DATASOURCE_HIKARI_CONNECTION_TIMEOUT_MS:10000}
+      validation-timeout: ${APP_DATASOURCE_HIKARI_VALIDATION_TIMEOUT_MS:5000}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -71,6 +76,7 @@ app:
     media-import-enabled: ${APP_TDLIGHT_MEDIA_IMPORT_ENABLED:true}
     max-imported-media-bytes: ${APP_TDLIGHT_MAX_IMPORTED_MEDIA_BYTES:20971520}
     max-imported-video-duration-seconds: ${APP_TDLIGHT_MAX_IMPORTED_VIDEO_DURATION_SECONDS:180}
+    dev-endpoints-enabled: ${APP_TDLIGHT_DEV_ENDPOINTS_ENABLED:false}
     session-encryption-key: ${APP_TDLIGHT_SESSION_ENCRYPTION_KEY:}
     library-path: ${APP_TDLIGHT_LIBRARY_PATH:}
     native-workdir: ${APP_TDLIGHT_NATIVE_WORKDIR:}

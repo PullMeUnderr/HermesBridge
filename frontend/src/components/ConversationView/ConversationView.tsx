@@ -6,7 +6,7 @@ import { Avatar } from "@/components/ui/Avatar"
 import { MessagesList } from "@/components/MessagesList/MessagesList"
 import { MessageComposer } from "@/components/MessageComposer/MessageComposer"
 import { MembersPanel } from "@/components/MembersPanel/MembersPanel"
-import { renderPresenceLabel } from "@/lib/format"
+import { displayConversationTitle, isTelegramConversationTitle, renderPresenceLabel } from "@/lib/format"
 import type {
   AuthUser,
   ConversationMember,
@@ -78,6 +78,7 @@ export function ConversationView({
   onOpenPhotoViewer,
   onBackToSidebar,
 }: ConversationViewProps) {
+  const isChannelConversation = isTelegramConversationTitle(conversation?.title)
   const [replyToMessageId, setReplyToMessageId] = useState<number | null>(null)
   const [membersOpen, setMembersOpen] = useState(false)
   const [visibleTypingNames, setVisibleTypingNames] = useState<string[]>(typingNames)
@@ -154,37 +155,41 @@ export function ConversationView({
           )}
           <Avatar
             token={token}
-            name={conversation.title}
+            name={displayConversationTitle(conversation.title)}
             src={conversation.avatarUrl}
             size='md'
           />
           <div>
             <div className={styles.topline}>
-              <span className={styles.role}>{conversation.membershipRole}</span>
+              <span className={styles.role}>{isChannelConversation ? "CHANNEL" : conversation.membershipRole}</span>
               <span className={styles.online}>Telegram sync</span>
             </div>
-            <h2>{conversation.title}</h2>
+            <h2>{displayConversationTitle(conversation.title)}</h2>
             <p className={styles.meta}>
-              {typingLabel ?? `${members.length} участников, профиль ${renderPresenceLabel(me)}`}
+              {isChannelConversation
+                ? "Канал Telegram, синхронизация только для чтения."
+                : typingLabel ?? `${members.length} участников, профиль ${renderPresenceLabel(me)}`}
             </p>
           </div>
         </div>
 
         <div className={styles.actions}>
-          <button
-            className={styles.iconButton}
-            type='button'
-            onClick={() => setMembersOpen(true)}
-            aria-label='Участники'
-          >
-            <svg viewBox='0 0 24 24' focusable='false' aria-hidden='true'>
-              <path
-                d='M16 11a3 3 0 1 0-2.999-3A3 3 0 0 0 16 11Zm-8 0A3 3 0 1 0 5 8a3 3 0 0 0 3 3Zm8 2c-2.2 0-6 1.1-6 3.3V18h12v-1.7C22 14.1 18.2 13 16 13Zm-8 0c-.29 0-.62.02-.97.05C5.37 13.21 2 14.04 2 16.3V18h6v-1.7c0-1.22.64-2.3 1.72-3.12A7.73 7.73 0 0 0 8 13Z'
-                fill='currentColor'
-              />
-            </svg>
-          </button>
-          {conversation.membershipRole === "OWNER" && (
+          {!isChannelConversation && (
+            <button
+              className={styles.iconButton}
+              type='button'
+              onClick={() => setMembersOpen(true)}
+              aria-label='Участники'
+            >
+              <svg viewBox='0 0 24 24' focusable='false' aria-hidden='true'>
+                <path
+                  d='M16 11a3 3 0 1 0-2.999-3A3 3 0 0 0 16 11Zm-8 0A3 3 0 1 0 5 8a3 3 0 0 0 3 3Zm8 2c-2.2 0-6 1.1-6 3.3V18h12v-1.7C22 14.1 18.2 13 16 13Zm-8 0c-.29 0-.62.02-.97.05C5.37 13.21 2 14.04 2 16.3V18h6v-1.7c0-1.22.64-2.3 1.72-3.12A7.73 7.73 0 0 0 8 13Z'
+                  fill='currentColor'
+                />
+              </svg>
+            </button>
+          )}
+          {!isChannelConversation && conversation.membershipRole === "OWNER" && (
             <button
               className={styles.iconButton}
               type='button'
@@ -217,30 +222,35 @@ export function ConversationView({
             token={token}
             me={me}
             conversationId={conversation.id}
+            conversationTitle={displayConversationTitle(conversation.title)}
+            conversationAvatarUrl={conversation.avatarUrl}
             messages={messages}
             currentUserLastReadAt={currentUserLastReadAt}
             readReceipts={readReceipts}
             loading={loading}
+            emptyStateVariant={isChannelConversation ? "channel" : "chat"}
             onReply={(messageId) =>
               setReplyToMessageId(onReply(messageId)?.id ?? null)
             }
             onOpenPhotoViewer={onOpenPhotoViewer}
           />
-          <MessageComposer
-            currentUserId={me.id}
-            members={members}
-            replyTarget={replyTarget}
-            onCancelReply={() => setReplyToMessageId(null)}
-            onTypingStateChange={onTypingStateChange}
-            onSend={async (payload) => {
-              await onSendMessage({ ...payload, replyToMessageId })
-              setReplyToMessageId(null)
-            }}
-          />
+          {!isChannelConversation && (
+            <MessageComposer
+              currentUserId={me.id}
+              members={members}
+              replyTarget={replyTarget}
+              onCancelReply={() => setReplyToMessageId(null)}
+              onTypingStateChange={onTypingStateChange}
+              onSend={async (payload) => {
+                await onSendMessage({ ...payload, replyToMessageId })
+                setReplyToMessageId(null)
+              }}
+            />
+          )}
         </div>
       </div>
 
-      {membersOpen && (
+      {!isChannelConversation && membersOpen && (
         <div
           className={styles.membersOverlay}
           onClick={() => setMembersOpen(false)}

@@ -1,6 +1,7 @@
 package com.vladislav.tgclone.tdlight.migration;
 
 import java.util.List;
+import java.util.ArrayList;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -17,12 +18,7 @@ public class TdlightChannelSnapshotMapper {
 
         List<TdlightChannelReader.TdlightChannelPost> posts = payload.posts() == null
             ? List.of()
-            : payload.posts().stream()
-                .filter(post -> post != null && post.remoteMessageId() != null && !post.remoteMessageId().isBlank())
-                .filter(post -> shouldIncludePost(post, migration, policy))
-                .limit(Math.max(1, policy.publicChannelMessageImportLimit()))
-                .map(this::mapPost)
-                .toList();
+            : mapPosts(payload.posts(), migration, policy);
 
         return new TdlightChannelReader.TdlightChannelSnapshot(
             normalizeChannelId(payload.sourceChannelId(), migration.getSourceChannelId()),
@@ -32,19 +28,44 @@ public class TdlightChannelSnapshotMapper {
         );
     }
 
-    private boolean shouldIncludePost(
-        TdlightPublicChannelGateway.TdlightPublicPostPayload post,
+    private List<TdlightChannelReader.TdlightChannelPost> mapPosts(
+        List<TdlightPublicChannelGateway.TdlightPublicPostPayload> rawPosts,
         ChannelMigration migration,
         TdlightIngestionPolicy policy
     ) {
-        if (!policy.backfillHistoryEnabled()
-            && post.publishedAt() != null
-            && post.publishedAt().isBefore(migration.getActivatedAt())) {
-            return false;
-        }
+        List<TdlightChannelReader.TdlightChannelPost> mappedPosts = new ArrayList<>();
+        int remainingHistoricalContext = Math.max(0, policy.initialHistoricalPostCount());
+        int totalLimit = Math.max(1, policy.publicChannelMessageImportLimit() + remainingHistoricalContext);
 
-        return policy.lastSeenRemoteMessageId() == null
-            || !policy.lastSeenRemoteMessageId().equals(post.remoteMessageId());
+        for (TdlightPublicChannelGateway.TdlightPublicPostPayload post : rawPosts) {
+            if (post == null || post.remoteMessageId() == null || post.remoteMessageId().isBlank()) {
+                continue;
+            }
+            if (policy.lastSeenRemoteMessageId() != null && policy.lastSeenRemoteMessageId().equals(post.remoteMessageId())) {
+                continue;
+            }
+
+            boolean historicalContextPost = !policy.backfillHistoryEnabled()
+                && policy.lastSeenRemoteMessageId() == null
+                && post.publishedAt() != null
+                && post.publishedAt().isBefore(migration.getActivatedAt());
+            if (historicalContextPost) {
+                if (remainingHistoricalContext <= 0) {
+                    continue;
+                }
+                remainingHistoricalContext -= 1;
+            } else if (!policy.backfillHistoryEnabled()
+                && post.publishedAt() != null
+                && post.publishedAt().isBefore(migration.getActivatedAt())) {
+                continue;
+            }
+
+            mappedPosts.add(mapPost(post));
+            if (mappedPosts.size() >= totalLimit) {
+                break;
+            }
+        }
+        return mappedPosts;
     }
 
     private TdlightChannelReader.TdlightChannelPost mapPost(TdlightPublicChannelGateway.TdlightPublicPostPayload post) {
@@ -96,8 +117,7 @@ public class TdlightChannelSnapshotMapper {
     }
 
     private String normalizeBody(String value) {
-        String normalized = normalizeNullable(value, null);
-        return normalized == null ? "Imported post without text" : normalized;
+        return normalizeNullable(value, null);
     }
 
     private String normalizeNullable(String value, String fallback) {

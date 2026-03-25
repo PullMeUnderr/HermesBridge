@@ -233,6 +233,45 @@
   margin-left: auto;
 }
 
+.pendingUploading {
+  position: relative;
+  padding-left: 18px;
+}
+
+.pendingUploading::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  border-radius: 999px;
+  border: 2px solid rgba(123, 195, 255, 0.28);
+  border-top-color: #7bc3ff;
+  animation: composerSpin 0.8s linear infinite;
+}
+
+.uploadingBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(123, 195, 255, 0.1);
+  border: 1px solid rgba(123, 195, 255, 0.2);
+  color: var(--text);
+}
+
+.uploadingBannerSpinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(123, 195, 255, 0.24);
+  border-top-color: #7bc3ff;
+  animation: composerSpin 0.8s linear infinite;
+}
+
 .recordedVoicePreview {
   display: grid;
   gap: 10px;
@@ -397,6 +436,25 @@
 .sendIcon {
   width: 20px;
   height: 20px;
+}
+
+.submitSpinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(5, 12, 22, 0.25);
+  border-top-color: rgba(5, 12, 22, 0.92);
+  animation: composerSpin 0.8s linear infinite;
+}
+
+@keyframes composerSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .srOnly {

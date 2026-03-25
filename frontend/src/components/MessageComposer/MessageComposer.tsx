@@ -921,19 +921,28 @@ export function MessageComposer({
           {attachments.map((attachment) => (
             <div key={attachment.id} className={styles.pendingItem}>
               <strong>{attachment.file.name}</strong>
-              <span>{attachment.source}</span>
+              <span className={submitting ? styles.pendingUploading : ""}>
+                {submitting ? "Отправляем..." : attachment.source}
+              </span>
               <button
                 type='button'
+                disabled={submitting}
                 onClick={() =>
                   setAttachments((current) =>
                     current.filter((item) => item.id !== attachment.id),
                   )
                 }
               >
-                Убрать
+                {submitting ? "..." : "Убрать"}
               </button>
             </div>
           ))}
+          {submitting && (
+            <div className={styles.uploadingBanner}>
+              <span className={styles.uploadingBannerSpinner} aria-hidden='true' />
+              <strong>Загружаем вложения в чат...</strong>
+            </div>
+          )}
         </div>
       )}
 
@@ -1008,9 +1017,13 @@ export function MessageComposer({
           className={styles.submitButton}
           disabled={submitting}
         >
-          <span className={styles.sendIcon} aria-hidden='true'>
-            <SendIcon />
-          </span>
+          {submitting ? (
+            <span className={styles.submitSpinner} aria-hidden='true' />
+          ) : (
+            <span className={styles.sendIcon} aria-hidden='true'>
+              <SendIcon />
+            </span>
+          )}
           <span className={styles.srOnly}>
             {submitting ? "Отправляем..." : "Отправить"}
           </span>

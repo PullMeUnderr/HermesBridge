@@ -17,6 +17,9 @@ import com.vladislav.tgclone.tdlight.migration.DefaultChannelMigrationService;
 import com.vladislav.tgclone.tdlight.migration.DefaultTdlightPublicChannelGateway;
 import com.vladislav.tgclone.tdlight.migration.TdlightChannelReader;
 import com.vladislav.tgclone.tdlight.migration.TdlightChannelSnapshotMapper;
+import com.vladislav.tgclone.tdlight.migration.TdlightChannelSubscriptionRepository;
+import com.vladislav.tgclone.tdlight.migration.TdlightChannelSubscriptionService;
+import com.vladislav.tgclone.tdlight.migration.TdlightChannelSyncCoordinator;
 import com.vladislav.tgclone.tdlight.migration.TdlightDiagnosticsService;
 import com.vladislav.tgclone.tdlight.migration.TdlightIngestionCoordinator;
 import com.vladislav.tgclone.tdlight.migration.TdlightGatewayChannelReader;
@@ -30,13 +33,14 @@ import com.vladislav.tgclone.tdlight.migration.TdlightQrAuthorizationService;
 import com.vladislav.tgclone.tdlight.migration.TdlightRuntimeAdapter;
 import com.vladislav.tgclone.tdlight.migration.TdlightRuntimeReadinessService;
 import com.vladislav.tgclone.tdlight.migration.TdlightSessionFactory;
+import com.vladislav.tgclone.tdlight.migration.DefaultTdlightChannelSubscriptionService;
+import com.vladislav.tgclone.tdlight.migration.DefaultTdlightChannelSyncCoordinator;
 import java.time.Clock;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Profile;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = "app.tdlight", name = "enabled", havingValue = "true")
@@ -195,11 +199,60 @@ class TdlightSharedConfiguration {
     }
 
     @Bean
-    @Profile("local")
+    TdlightChannelSubscriptionService tdlightChannelSubscriptionService(
+        TdlightConnectionRepository tdlightConnectionRepository,
+        TdlightChannelSubscriptionRepository tdlightChannelSubscriptionRepository,
+        TdlightPublicChannelClient tdlightPublicChannelClient,
+        com.vladislav.tgclone.conversation.ConversationMemberRepository conversationMemberRepository,
+        com.vladislav.tgclone.conversation.ConversationService conversationService,
+        Clock clock
+    ) {
+        return new DefaultTdlightChannelSubscriptionService(
+            tdlightConnectionRepository,
+            tdlightChannelSubscriptionRepository,
+            tdlightPublicChannelClient,
+            conversationMemberRepository,
+            conversationService,
+            clock
+        );
+    }
+
+    @Bean
+    TdlightChannelSyncCoordinator tdlightChannelSyncCoordinator(
+        TdlightChannelSubscriptionRepository tdlightChannelSubscriptionRepository,
+        TdlightConnectionRepository tdlightConnectionRepository,
+        TdlightChannelReader tdlightChannelReader,
+        TdlightMediaImportPlanner tdlightMediaImportPlanner,
+        com.vladislav.tgclone.conversation.ConversationService conversationService,
+        com.vladislav.tgclone.conversation.ConversationEventPublisher conversationEventPublisher,
+        com.vladislav.tgclone.conversation.ConversationMessageRepository conversationMessageRepository,
+        com.vladislav.tgclone.conversation.ConversationAttachmentRepository conversationAttachmentRepository,
+        MediaStorageService mediaStorageService,
+        TdlightProperties tdlightProperties,
+        Clock clock
+    ) {
+        return new DefaultTdlightChannelSyncCoordinator(
+            tdlightChannelSubscriptionRepository,
+            tdlightConnectionRepository,
+            tdlightChannelReader,
+            tdlightMediaImportPlanner,
+            conversationService,
+            conversationEventPublisher,
+            conversationMessageRepository,
+            conversationAttachmentRepository,
+            mediaStorageService,
+            tdlightProperties,
+            clock
+        );
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "app.tdlight", name = "dev-endpoints-enabled", havingValue = "true")
     TdlightDevController tdlightDevController(
         UserAccountService userAccountService,
         TdlightConnectionService tdlightConnectionService,
         ChannelMigrationService channelMigrationService,
+        TdlightChannelSubscriptionService tdlightChannelSubscriptionService,
         ObjectProvider<TdlightIngestionCoordinator> tdlightIngestionCoordinator,
         TdlightDiagnosticsService tdlightDiagnosticsService,
         TdlightPublicChannelResolveService tdlightPublicChannelResolveService,
@@ -210,6 +263,7 @@ class TdlightSharedConfiguration {
             userAccountService,
             tdlightConnectionService,
             channelMigrationService,
+            tdlightChannelSubscriptionService,
             tdlightIngestionCoordinator,
             tdlightDiagnosticsService,
             tdlightPublicChannelResolveService,
@@ -219,7 +273,7 @@ class TdlightSharedConfiguration {
     }
 
     @Bean
-    @Profile("local")
+    @ConditionalOnProperty(prefix = "app.tdlight", name = "dev-endpoints-enabled", havingValue = "true")
     TdlightLocalQrPageController tdlightLocalQrPageController(
         @org.springframework.beans.factory.annotation.Value("${app.auth.master-token:}") String masterToken
     ) {
@@ -228,7 +282,7 @@ class TdlightSharedConfiguration {
 }
 
 @Configuration(proxyBeanMethods = false)
-@Profile("local")
+@ConditionalOnProperty(prefix = "app.tdlight", name = "dev-endpoints-enabled", havingValue = "true")
 @ConditionalOnTdlightStubMode
 class TdlightStubConfiguration {
 

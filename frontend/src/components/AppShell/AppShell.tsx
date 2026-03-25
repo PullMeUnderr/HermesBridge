@@ -13,6 +13,7 @@ import type {
   ConversationSummary,
   DrawerMode,
   PendingAttachment,
+  TdlightAvailableChannel,
 } from "@/types/api";
 
 interface AppShellProps {
@@ -28,8 +29,13 @@ interface AppShellProps {
   typingNames: string[];
   loadingConversations: boolean;
   loadingConversationData: boolean;
+  availableChannels: TdlightAvailableChannel[];
+  loadingAvailableChannels: boolean;
   onLogout: () => void;
   onRefreshConversations: () => Promise<void>;
+  onRefreshAvailableChannels: () => Promise<void>;
+  onSubscribeChannel: (channel: TdlightAvailableChannel) => Promise<void>;
+  onSubscribeChannels: (channels: TdlightAvailableChannel[]) => Promise<void>;
   onSelectConversation: (conversationId: number) => void;
   onOpenDrawer: (mode: Exclude<DrawerMode, null>, conversationId?: number | null) => void;
   onCloseDrawer: () => void;
@@ -41,6 +47,7 @@ interface AppShellProps {
     avatar?: File | null;
     removeAvatar?: boolean;
   }) => Promise<void>;
+  onRefreshSessionState: () => Promise<void>;
   onUpdateConversation: (
     conversationId: number,
     payload: { title: string; avatar?: File | null; removeAvatar?: boolean; muted?: boolean },
@@ -73,14 +80,20 @@ export function AppShell(props: AppShellProps) {
     typingNames,
     loadingConversations,
     loadingConversationData,
+    availableChannels,
+    loadingAvailableChannels,
     onLogout,
     onRefreshConversations,
+    onRefreshAvailableChannels,
+    onSubscribeChannel,
+    onSubscribeChannels,
     onSelectConversation,
     onOpenDrawer,
     onCloseDrawer,
     onCreateConversation,
     onJoinConversation,
     onUpdateProfile,
+    onRefreshSessionState,
     onUpdateConversation,
     onDeleteConversation,
     onCreateInvite,
@@ -92,6 +105,8 @@ export function AppShell(props: AppShellProps) {
   } = props;
   const [mobileScreen, setMobileScreen] = useState<"sidebar" | "conversation">("sidebar");
   const [mobileViewport, setMobileViewport] = useState(false);
+  const profileOverlayOpen = drawerMode === "profile";
+  const inlineDrawerEnabled = !mobileViewport && drawerMode !== "profile";
   const handleTypingStateChange = useCallback(
     (active: boolean) => {
       if (!selectedConversation) {
@@ -137,7 +152,7 @@ export function AppShell(props: AppShellProps) {
           loading={loadingConversations}
           drawerMode={drawerMode}
           drawerConversation={drawerConversation}
-          inlineDrawer={!mobileViewport}
+          inlineDrawer={inlineDrawerEnabled}
           onLogout={onLogout}
           onRefresh={onRefreshConversations}
           onSelectConversation={(conversationId) => {
@@ -155,6 +170,7 @@ export function AppShell(props: AppShellProps) {
           onCreateConversation={onCreateConversation}
           onJoinConversation={onJoinConversation}
           onUpdateProfile={onUpdateProfile}
+          onRefreshSessionState={onRefreshSessionState}
           onUpdateConversation={onUpdateConversation}
           onDeleteConversation={onDeleteConversation}
         />
@@ -181,7 +197,7 @@ export function AppShell(props: AppShellProps) {
         </main>
       </div>
 
-      {mobileViewport && (
+      {(mobileViewport || profileOverlayOpen) && (
         <DrawerPanel
           token={token}
           open={drawerMode !== null}
@@ -192,6 +208,12 @@ export function AppShell(props: AppShellProps) {
           onCreateConversation={onCreateConversation}
           onJoinConversation={onJoinConversation}
           onUpdateProfile={onUpdateProfile}
+          onRefreshSessionState={onRefreshSessionState}
+          availableChannels={availableChannels}
+          loadingAvailableChannels={loadingAvailableChannels}
+          onRefreshAvailableChannels={onRefreshAvailableChannels}
+          onSubscribeChannel={onSubscribeChannel}
+          onSubscribeChannels={onSubscribeChannels}
           onUpdateConversation={onUpdateConversation}
           onDeleteConversation={onDeleteConversation}
         />

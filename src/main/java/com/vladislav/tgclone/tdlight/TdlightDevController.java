@@ -8,6 +8,10 @@ import com.vladislav.tgclone.tdlight.connection.TdlightConnectionService;
 import com.vladislav.tgclone.tdlight.migration.ChannelMigrationRequest;
 import com.vladislav.tgclone.tdlight.migration.ChannelMigrationService;
 import com.vladislav.tgclone.tdlight.migration.ChannelMigrationSummary;
+import com.vladislav.tgclone.tdlight.migration.TdlightAvailableChannelSummary;
+import com.vladislav.tgclone.tdlight.migration.TdlightChannelSubscriptionRequest;
+import com.vladislav.tgclone.tdlight.migration.TdlightChannelSubscriptionService;
+import com.vladislav.tgclone.tdlight.migration.TdlightChannelSubscriptionSummary;
 import com.vladislav.tgclone.tdlight.migration.TdlightIngestionCoordinator;
 import com.vladislav.tgclone.tdlight.migration.TdlightDiagnosticsService;
 import com.vladislav.tgclone.tdlight.migration.TdlightPublicChannelResolveService;
@@ -19,7 +23,6 @@ import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -29,15 +32,20 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-@Profile("local")
 @RestController
 @RequestMapping("/api/tdlight")
 public class TdlightDevController {
 
+    private static final Logger log = LoggerFactory.getLogger(TdlightDevController.class);
+
     private final UserAccountService userAccountService;
     private final TdlightConnectionService tdlightConnectionService;
     private final ChannelMigrationService channelMigrationService;
+    private final TdlightChannelSubscriptionService tdlightChannelSubscriptionService;
     private final TdlightIngestionCoordinator tdlightIngestionCoordinator;
     private final TdlightDiagnosticsService tdlightDiagnosticsService;
     private final TdlightPublicChannelResolveService tdlightPublicChannelResolveService;
@@ -48,6 +56,7 @@ public class TdlightDevController {
         UserAccountService userAccountService,
         TdlightConnectionService tdlightConnectionService,
         ChannelMigrationService channelMigrationService,
+        TdlightChannelSubscriptionService tdlightChannelSubscriptionService,
         ObjectProvider<TdlightIngestionCoordinator> tdlightIngestionCoordinator,
         TdlightDiagnosticsService tdlightDiagnosticsService,
         TdlightPublicChannelResolveService tdlightPublicChannelResolveService,
@@ -57,6 +66,7 @@ public class TdlightDevController {
         this.userAccountService = userAccountService;
         this.tdlightConnectionService = tdlightConnectionService;
         this.channelMigrationService = channelMigrationService;
+        this.tdlightChannelSubscriptionService = tdlightChannelSubscriptionService;
         this.tdlightIngestionCoordinator = tdlightIngestionCoordinator.getIfAvailable();
         this.tdlightDiagnosticsService = tdlightDiagnosticsService;
         this.tdlightPublicChannelResolveService = tdlightPublicChannelResolveService;
@@ -81,9 +91,66 @@ public class TdlightDevController {
         TdlightConnectionDescriptor connection = tdlightConnectionService.createDevelopmentConnection(
             requireUser(authenticatedUser),
             request.phoneMask(),
-            request.tdlightUserId()
+            request.tdlightUserId(),
+            request.forceNew()
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(TdlightConnectionResponse.from(connection));
+    }
+
+    @GetMapping("/channels")
+    public List<TdlightAvailableChannelResponse> listAvailableChannels(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+        @org.springframework.web.bind.annotation.RequestParam("tdlightConnectionId") Long tdlightConnectionId
+    ) {
+        UserAccount userAccount = requireUser(authenticatedUser);
+        List<TdlightAvailableChannelResponse> response = tdlightChannelSubscriptionService.listAvailableChannels(
+            userAccount,
+            tdlightConnectionId
+        ).stream().map(TdlightAvailableChannelResponse::from).toList();
+        log.info(
+            "TDLight channels resolved userId={} username={} tdlightConnectionId={} count={}",
+            userAccount.getId(),
+            userAccount.getUsername(),
+            tdlightConnectionId,
+            response.size()
+        );
+        return response;
+    }
+
+    @GetMapping("/subscriptions")
+    public List<TdlightChannelSubscriptionResponse> listSubscriptions(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser
+    ) {
+        return tdlightChannelSubscriptionService.listSubscriptions(requireUser(authenticatedUser)).stream()
+            .map(TdlightChannelSubscriptionResponse::from)
+            .toList();
+    }
+
+    @PostMapping("/subscriptions")
+    public ResponseEntity<TdlightChannelSubscriptionResponse> subscribeToChannel(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+        @Valid @RequestBody CreateTdlightChannelSubscriptionRequest request
+    ) {
+        TdlightChannelSubscriptionSummary summary = tdlightChannelSubscriptionService.subscribe(
+            requireUser(authenticatedUser),
+            new TdlightChannelSubscriptionRequest(
+                request.tdlightConnectionId(),
+                request.telegramChannelId(),
+                request.telegramChannelHandle(),
+                request.channelTitle(),
+                request.avatarUrl()
+            )
+        );
+        return ResponseEntity.status(HttpStatus.CREATED).body(TdlightChannelSubscriptionResponse.from(summary));
+    }
+
+    @DeleteMapping("/subscriptions/conversation/{conversationId}")
+    public ResponseEntity<Void> disconnectChannelByConversation(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+        @PathVariable("conversationId") Long conversationId
+    ) {
+        tdlightChannelSubscriptionService.disconnectByConversation(requireUser(authenticatedUser), conversationId);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/migrations")
@@ -241,6 +308,19 @@ public class TdlightDevController {
         );
     }
 
+    @PostMapping("/auth/reset")
+    public TdlightQrAuthorizationStatusResponse resetAuthorization(
+        @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+        @Valid @RequestBody TdlightConnectionRequest request
+    ) {
+        return TdlightQrAuthorizationStatusResponse.from(
+            requireQrAuthorizationService().resetAuthorization(
+                requireUser(authenticatedUser),
+                request.tdlightConnectionId()
+            )
+        );
+    }
+
     @GetMapping("/auth/{tdlightConnectionId}/status")
     public TdlightQrAuthorizationStatusResponse qrAuthorizationStatus(
         @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
@@ -278,7 +358,8 @@ public class TdlightDevController {
 
 record CreateDevTdlightConnectionRequest(
     String phoneMask,
-    String tdlightUserId
+    String tdlightUserId,
+    boolean forceNew
 ) {
 }
 
@@ -340,6 +421,17 @@ record TdlightConnectionRequest(
 ) {
 }
 
+record CreateTdlightChannelSubscriptionRequest(
+    @NotNull(message = "tdlightConnectionId is required")
+    Long tdlightConnectionId,
+    @NotBlank(message = "telegramChannelId is required")
+    String telegramChannelId,
+    String telegramChannelHandle,
+    String channelTitle,
+    String avatarUrl
+) {
+}
+
 record TdlightConnectionResponse(
     Long id,
     Long userAccountId,
@@ -359,6 +451,64 @@ record TdlightConnectionResponse(
             descriptor.tdlightUserId(),
             descriptor.createdAt(),
             descriptor.lastVerifiedAt()
+        );
+    }
+}
+
+record TdlightAvailableChannelResponse(
+    String telegramChannelId,
+    String telegramChannelHandle,
+    String channelTitle,
+    String avatarUrl,
+    boolean subscribed,
+    Long subscriptionId,
+    Long conversationId
+) {
+
+    static TdlightAvailableChannelResponse from(TdlightAvailableChannelSummary summary) {
+        return new TdlightAvailableChannelResponse(
+            summary.telegramChannelId(),
+            summary.telegramChannelHandle(),
+            summary.channelTitle(),
+            summary.avatarUrl(),
+            summary.subscribed(),
+            summary.subscriptionId(),
+            summary.conversationId()
+        );
+    }
+}
+
+record TdlightChannelSubscriptionResponse(
+    Long id,
+    Long tdlightConnectionId,
+    Long conversationId,
+    String telegramChannelId,
+    String telegramChannelHandle,
+    String channelTitle,
+    String status,
+    Instant subscribedAt,
+    String lastSyncedRemoteMessageId,
+    Instant lastSyncedAt,
+    String lastError,
+    Instant createdAt,
+    Instant updatedAt
+) {
+
+    static TdlightChannelSubscriptionResponse from(TdlightChannelSubscriptionSummary summary) {
+        return new TdlightChannelSubscriptionResponse(
+            summary.id(),
+            summary.tdlightConnectionId(),
+            summary.conversationId(),
+            summary.telegramChannelId(),
+            summary.telegramChannelHandle(),
+            summary.channelTitle(),
+            summary.status().name(),
+            summary.subscribedAt(),
+            summary.lastSyncedRemoteMessageId(),
+            summary.lastSyncedAt(),
+            summary.lastError(),
+            summary.createdAt(),
+            summary.updatedAt()
         );
     }
 }

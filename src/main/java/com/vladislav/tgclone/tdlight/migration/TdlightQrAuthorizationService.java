@@ -22,6 +22,7 @@ import it.tdlight.client.SimpleTelegramClientFactory;
 import it.tdlight.client.TDLibSettings;
 import it.tdlight.jni.TdApi;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
@@ -39,6 +40,8 @@ public class TdlightQrAuthorizationService {
     private final TdlightConnectionRepository tdlightConnectionRepository;
     private final TdlightAccountBindingService tdlightAccountBindingService;
     private final TdlightNativeLibraryBootstrap tdlightNativeLibraryBootstrap;
+    private final TdlightSessionStateStore tdlightSessionStateStore;
+    private final TdlightSessionSecretStore tdlightSessionSecretStore;
     private final TdlightProperties tdlightProperties;
     private final Clock clock;
     private final Map<Long, ActiveQrAuthorizationSession> sessions = new ConcurrentHashMap<>();
@@ -47,17 +50,20 @@ public class TdlightQrAuthorizationService {
         TdlightConnectionRepository tdlightConnectionRepository,
         TdlightAccountBindingService tdlightAccountBindingService,
         TdlightNativeLibraryBootstrap tdlightNativeLibraryBootstrap,
+        TdlightSessionStateStore tdlightSessionStateStore,
+        TdlightSessionSecretStore tdlightSessionSecretStore,
         TdlightProperties tdlightProperties,
         Clock clock
     ) {
         this.tdlightConnectionRepository = tdlightConnectionRepository;
         this.tdlightAccountBindingService = tdlightAccountBindingService;
         this.tdlightNativeLibraryBootstrap = tdlightNativeLibraryBootstrap;
+        this.tdlightSessionStateStore = tdlightSessionStateStore;
+        this.tdlightSessionSecretStore = tdlightSessionSecretStore;
         this.tdlightProperties = tdlightProperties;
         this.clock = clock;
     }
 
-    @Transactional(readOnly = true)
     public QrAuthorizationStatus startQrAuthorization(UserAccount initiatedBy, Long tdlightConnectionId) {
         if (!tdlightProperties.enabled() || !tdlightProperties.migrationEnabled()) {
             throw new IllegalStateException("TDLight QR authorization is disabled");
@@ -74,7 +80,6 @@ public class TdlightQrAuthorizationService {
         return toStatus(connection.getId(), session.state().current());
     }
 
-    @Transactional(readOnly = true)
     public QrAuthorizationStatus startCodeAuthorization(
         UserAccount initiatedBy,
         Long tdlightConnectionId,
@@ -102,7 +107,6 @@ public class TdlightQrAuthorizationService {
         return toStatus(connection.getId(), session.state().current());
     }
 
-    @Transactional(readOnly = true)
     public QrAuthorizationStatus getStatus(UserAccount initiatedBy, Long tdlightConnectionId) {
         TdlightConnection connection = requireActiveConnection(initiatedBy, tdlightConnectionId);
         ActiveQrAuthorizationSession session = sessions.get(connection.getId());
@@ -112,7 +116,14 @@ public class TdlightQrAuthorizationService {
         return toStatus(connection.getId(), session.state().current());
     }
 
-    @Transactional(readOnly = true)
+    public QrAuthorizationStatus resetAuthorization(UserAccount initiatedBy, Long tdlightConnectionId) {
+        TdlightConnection connection = requireActiveConnection(initiatedBy, tdlightConnectionId);
+        tdlightConnectionRepository.findAllByUserAccount_IdOrderByCreatedAtDesc(initiatedBy.getId()).stream()
+            .filter(existingConnection -> existingConnection.getStatus() == TdlightConnectionStatus.ACTIVE)
+            .forEach(this::revokeConnectionRuntimeState);
+        return toStatus(connection.getId(), new QrAuthorizationState(connection.getId(), QrAuthorizationPhase.NOT_STARTED, null, null, null, clock.instant()));
+    }
+
     public QrAuthorizationStatus submitCode(UserAccount initiatedBy, Long tdlightConnectionId, String code) {
         if (code == null || code.isBlank()) {
             throw new IllegalArgumentException("code is required");
@@ -132,7 +143,6 @@ public class TdlightQrAuthorizationService {
         return toStatus(connection.getId(), session.state().current());
     }
 
-    @Transactional(readOnly = true)
     public QrAuthorizationStatus submitPassword(UserAccount initiatedBy, Long tdlightConnectionId, String password) {
         if (password == null || password.isBlank()) {
             throw new IllegalArgumentException("password is required");
@@ -169,10 +179,16 @@ public class TdlightQrAuthorizationService {
             tdlightProperties.applicationVersion()
         );
         tdlightNativeLibraryBootstrap.ensureLoaded(runtimeConfiguration);
+        TdlightSessionBinding sessionBinding = tdlightSessionStateStore.findBinding(connection)
+            .orElseGet(() -> tdlightSessionStateStore.createBinding(
+                connection,
+                runtimeConfiguration.databaseDirectory(),
+                runtimeConfiguration.filesDirectory()
+            ));
 
         TDLibSettings settings = TDLibSettings.create(new APIToken(runtimeConfiguration.apiId(), runtimeConfiguration.apiHash()));
-        settings.setDatabaseDirectoryPath(Path.of(runtimeConfiguration.databaseDirectory()));
-        settings.setDownloadedFilesDirectoryPath(Path.of(runtimeConfiguration.filesDirectory()));
+        settings.setDatabaseDirectoryPath(Path.of(sessionBinding.databaseDirectory()));
+        settings.setDownloadedFilesDirectoryPath(Path.of(sessionBinding.filesDirectory()));
         settings.setUseTestDatacenter(false);
         settings.setSystemLanguageCode(runtimeConfiguration.systemLanguageCode());
         settings.setDeviceModel(runtimeConfiguration.deviceModel());
@@ -181,11 +197,26 @@ public class TdlightQrAuthorizationService {
         QrAuthorizationStateHolder holder = new QrAuthorizationStateHolder(initialState);
         SimpleTelegramClientFactory factory = new SimpleTelegramClientFactory();
         ActiveQrAuthorizationSession session = new ActiveQrAuthorizationSession(factory, null, holder);
-        SimpleTelegramClientBuilder builder = factory.builder(settings);
-        builder.setClientInteraction(new QrClientInteraction(session, clock));
-        builder.addUpdateHandler(TdApi.UpdateAuthorizationState.class, update -> handleAuthorizationUpdate(session, update));
-        SimpleTelegramClient client = builder.build(authenticationSupplier);
-        session.setClient(client);
+        Thread bootstrapThread = new Thread(() -> {
+            try {
+                SimpleTelegramClientBuilder builder = factory.builder(settings);
+                builder.setClientInteraction(new QrClientInteraction(session, clock));
+                builder.addUpdateHandler(TdApi.UpdateAuthorizationState.class, update -> handleAuthorizationUpdate(session, update));
+                SimpleTelegramClient client = builder.build(authenticationSupplier);
+                session.setClient(client);
+            } catch (Throwable exception) {
+                holder.update(
+                    QrAuthorizationPhase.FAILED,
+                    holder.current().qrLink(),
+                    holder.current().phoneNumber(),
+                    exception.getMessage(),
+                    clock.instant()
+                );
+                closeInteractiveResources(session);
+            }
+        }, "tdlight-qr-bootstrap-" + connection.getId());
+        bootstrapThread.setDaemon(true);
+        bootstrapThread.start();
         return session;
     }
 
@@ -199,9 +230,16 @@ public class TdlightQrAuthorizationService {
         QrAuthorizationStateHolder holder = session.state();
         TdApi.AuthorizationState authorizationState = update.authorizationState;
         if (authorizationState instanceof TdApi.AuthorizationStateReady) {
-            syncAuthorizedConnection(session, holder.current());
             holder.update(QrAuthorizationPhase.READY, holder.current().qrLink(), null, null, clock.instant());
-            closeInteractiveResources(session);
+            Thread syncThread = new Thread(() -> {
+                try {
+                    syncAuthorizedConnection(session, holder.current());
+                } finally {
+                    closeInteractiveResources(session);
+                }
+            }, "tdlight-qr-ready-sync-" + holder.current().tdlightConnectionId());
+            syncThread.setDaemon(true);
+            syncThread.start();
             return;
         }
         if (authorizationState instanceof TdApi.AuthorizationStateWaitCode waitCode) {
@@ -226,8 +264,27 @@ public class TdlightQrAuthorizationService {
 
     private void closeExistingSession(Long tdlightConnectionId) {
         Optional.ofNullable(sessions.remove(tdlightConnectionId)).ifPresent(existing -> {
-            closeInteractiveResources(existing);
+            Thread closeThread = new Thread(
+                () -> closeInteractiveResources(existing),
+                "tdlight-qr-close-" + tdlightConnectionId
+            );
+            closeThread.setDaemon(true);
+            closeThread.start();
         });
+    }
+
+    private void revokeConnectionRuntimeState(TdlightConnection connection) {
+        closeExistingSession(connection.getId());
+        sessions.remove(connection.getId());
+        tdlightSessionStateStore.findBinding(connection).ifPresent(binding -> {
+            clearDirectory(binding.databaseDirectory());
+            clearDirectory(binding.filesDirectory());
+        });
+        tdlightSessionSecretStore.revokeSession(connection);
+        tdlightSessionStateStore.revokeBinding(connection);
+        connection.clearAuthorizedProfile();
+        connection.markRevoked(clock.instant());
+        tdlightConnectionRepository.save(connection);
     }
 
     private ActiveQrAuthorizationSession requireSession(Long tdlightConnectionId) {
@@ -258,6 +315,39 @@ public class TdlightQrAuthorizationService {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private void clearDirectory(String directory) {
+        if (directory == null) {
+            return;
+        }
+        try {
+            Path directoryPath = Path.of(directory);
+            if (!Files.exists(directoryPath)) {
+                return;
+            }
+            try (var children = Files.list(directoryPath)) {
+                children.forEach(path -> {
+                    try {
+                        if (Files.isDirectory(path)) {
+                            try (var nested = Files.walk(path)) {
+                                nested.sorted((left, right) -> right.getNameCount() - left.getNameCount())
+                                    .forEach(child -> {
+                                        try {
+                                            Files.deleteIfExists(child);
+                                        } catch (Exception ignored) {
+                                        }
+                                    });
+                            }
+                        } else {
+                            Files.deleteIfExists(path);
+                        }
+                    } catch (Exception ignored) {
+                    }
+                });
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     private void closeInteractiveResources(ActiveQrAuthorizationSession session) {

@@ -44,7 +44,7 @@ public class ConversationAttachmentController {
         InputStreamResource body;
         try {
             body = new InputStreamResource(mediaStorageService.openStream(attachment.getStorageKey()));
-        } catch (IllegalStateException ex) {
+        } catch (Exception ex) {
             throw new NotFoundException("Attachment content %s not found".formatted(attachmentId));
         }
 
@@ -52,10 +52,6 @@ public class ConversationAttachmentController {
             .cacheControl(CacheControl.noStore().mustRevalidate())
             .contentType(mediaType)
             .contentLength(attachment.getSizeBytes())
-            .header(
-                HttpHeaders.CONTENT_DISPOSITION,
-                ContentDisposition.inline().filename(attachment.getOriginalFilename()).build().toString()
-            )
             .header(HttpHeaders.PRAGMA, "no-cache")
             .header(HttpHeaders.EXPIRES, "0")
             .body(body);

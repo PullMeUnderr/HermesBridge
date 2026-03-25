@@ -5,6 +5,7 @@ import java.time.Instant;
 public record TdlightIngestionPolicy(
     boolean backfillHistoryEnabled,
     int publicChannelMessageImportLimit,
+    int initialHistoricalPostCount,
     int importedPostRetentionDays,
     boolean mediaImportEnabled,
     long maxImportedMediaBytes,

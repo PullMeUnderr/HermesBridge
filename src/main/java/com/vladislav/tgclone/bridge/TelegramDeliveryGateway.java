@@ -47,6 +47,19 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
             );
         }
 
+        String contextReplyToMessageId = replyToMessageId;
+        if (hasOutboundBody(message)) {
+            String contextMessageId = telegramBotClient.sendMessage(
+                binding.getExternalChatId(),
+                buildMessageText(message),
+                null,
+                replyToMessageId
+            );
+            if (contextMessageId != null && !contextMessageId.isBlank()) {
+                contextReplyToMessageId = contextMessageId;
+            }
+        }
+
         if (attachments.size() > 1 && canSendAsMediaGroup(attachments)) {
             List<MediaStorageService.MaterializedMediaFile> mediaFiles = new java.util.ArrayList<>();
             try {
@@ -63,8 +76,8 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
                 return telegramBotClient.sendMediaGroup(
                     binding.getExternalChatId(),
                     items,
-                    buildCaption(message),
-                    replyToMessageId
+                    null,
+                    contextReplyToMessageId
                 );
             } catch (Exception ignored) {
                 // Fall back to individual sends.
@@ -80,11 +93,10 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
         }
 
         String firstMessageId = "";
-        String caption = buildCaption(message);
         for (int index = 0; index < attachments.size(); index++) {
             ConversationAttachment attachment = attachments.get(index);
-            String currentCaption = index == 0 ? caption : null;
-            String currentReplyToMessageId = index == 0 ? replyToMessageId : null;
+            String currentCaption = null;
+            String currentReplyToMessageId = contextReplyToMessageId;
             String messageId = deliverAttachment(binding, attachment, currentCaption, currentReplyToMessageId);
 
             if (firstMessageId.isBlank() && messageId != null && !messageId.isBlank()) {
@@ -93,6 +105,10 @@ public class TelegramDeliveryGateway implements DeliveryGateway {
         }
 
         return firstMessageId;
+    }
+
+    private boolean hasOutboundBody(ConversationMessage message) {
+        return message.getBody() != null && !message.getBody().isBlank();
     }
 
     private String buildMessageText(ConversationMessage message) {

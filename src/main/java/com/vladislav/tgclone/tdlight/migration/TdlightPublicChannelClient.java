@@ -11,6 +11,8 @@ public interface TdlightPublicChannelClient {
         TdlightChannelReference reference
     );
 
+    List<TdlightAvailableChannel> listAvailablePublicChannels(TdlightConnection connection);
+
     List<TdlightFetchedPost> fetchNewPosts(
         TdlightConnection connection,
         TdlightResolvedChannel channel,
@@ -23,6 +25,11 @@ public interface TdlightPublicChannelClient {
         TdlightResolvedChannel channel,
         TdlightFetchedPost post,
         TdlightFetchedMediaReference mediaReference
+    );
+
+    TdlightFetchedMedia fetchChannelAvatar(
+        TdlightConnection connection,
+        TdlightResolvedChannel channel
     );
 
     record TdlightChannelReference(
@@ -60,6 +67,7 @@ public interface TdlightPublicChannelClient {
         Instant activatedAt,
         String lastSeenRemoteMessageId,
         boolean backfillHistoryEnabled,
+        int initialHistoricalPostCount,
         boolean includeMedia
     ) {
     }
@@ -70,7 +78,8 @@ public interface TdlightPublicChannelClient {
         String authorDisplayName,
         String text,
         Instant publishedAt,
-        List<TdlightFetchedMediaReference> mediaReferences
+        List<TdlightFetchedMediaReference> mediaReferences,
+        List<TdlightFetchedMedia> media
     ) {
     }
 
@@ -89,6 +98,14 @@ public interface TdlightPublicChannelClient {
         long sizeBytes,
         int durationSeconds,
         byte[] content
+    ) {
+    }
+
+    record TdlightAvailableChannel(
+        String sourceChannelId,
+        String sourceChannelHandle,
+        String title,
+        String avatarUrl
     ) {
     }
 }

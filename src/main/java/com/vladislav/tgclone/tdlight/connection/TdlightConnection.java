@@ -181,4 +181,11 @@ public class TdlightConnection {
     public void markSynced(Instant timestamp) {
         this.lastSyncedAt = timestamp;
     }
+
+    public void clearAuthorizedProfile() {
+        this.tdlightUserId = null;
+        this.tdlightUsername = null;
+        this.tdlightDisplayName = null;
+        this.verifiedAt = null;
+    }
 }

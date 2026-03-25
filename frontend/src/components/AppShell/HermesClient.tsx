@@ -17,6 +17,13 @@ import {
   refreshAccessToken,
   writeStoredAccessToken,
 } from "@/lib/api";
+import { isTelegramConversationTitle } from "@/lib/format";
+import {
+  readChannelMessageCache,
+  removeChannelMessageCache,
+  upsertChannelMessageCache,
+  writeChannelMessageCache,
+} from "@/lib/channelMessageCache";
 import { cleanupProtectedMediaCache } from "@/lib/protectedMediaCache";
 import { subscribeToConversationMessages } from "@/lib/ws";
 import type { ConversationSocketSession } from "@/lib/ws";
@@ -33,10 +40,74 @@ import type {
   InviteAcceptance,
   PendingAttachment,
   PhotoViewerState,
+  TdlightAvailableChannel,
+  TdlightConnection,
   ToastMessage,
 } from "@/types/api";
 
 const EMPTY_PHOTO_VIEWER: PhotoViewerState = { items: [], activeIndex: 0 };
+const SESSION_BOOT_TIMEOUT_MS = 12000;
+const CHANNELS_REFRESH_TIMEOUT_MS = 10000;
+const CHANNEL_SUBSCRIBE_TIMEOUT_MS = 15000;
+const LAST_CONVERSATION_STORAGE_PREFIX = "hermes:last-conversation";
+
+function pickPreferredTdlightConnection(connections: TdlightConnection[]): TdlightConnection | null {
+  return (
+    [...connections].sort((left, right) => {
+      const leftVerified = left.lastVerifiedAt ? 1 : 0;
+      const rightVerified = right.lastVerifiedAt ? 1 : 0;
+      if (leftVerified !== rightVerified) {
+        return rightVerified - leftVerified;
+      }
+
+      const leftAuthorized = left.tdlightUserId ? 1 : 0;
+      const rightAuthorized = right.tdlightUserId ? 1 : 0;
+      if (leftAuthorized !== rightAuthorized) {
+        return rightAuthorized - leftAuthorized;
+      }
+
+      return right.createdAt.localeCompare(left.createdAt);
+    })[0] ?? null
+  );
+}
+
+function pickAuthorizedTdlightConnection(connections: TdlightConnection[]): TdlightConnection | null {
+  return pickPreferredTdlightConnection(
+    connections.filter((connection) => Boolean(connection.lastVerifiedAt && connection.tdlightUserId)),
+  );
+}
+
+function isChannelConversation(conversation: ConversationSummary | null | undefined) {
+  return isTelegramConversationTitle(conversation?.title);
+}
+
+function lastConversationStorageKey(user: Pick<AuthUser, "id" | "tenantKey">) {
+  return `${LAST_CONVERSATION_STORAGE_PREFIX}:${user.tenantKey}:${user.id}`;
+}
+
+function readLastConversationId(user: Pick<AuthUser, "id" | "tenantKey">) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem(lastConversationStorageKey(user));
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function writeLastConversationId(user: Pick<AuthUser, "id" | "tenantKey">, conversationId: number | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const key = lastConversationStorageKey(user);
+  if (!conversationId || !Number.isFinite(conversationId) || conversationId <= 0) {
+    window.localStorage.removeItem(key);
+    return;
+  }
+
+  window.localStorage.setItem(key, String(conversationId));
+}
 
 export function HermesClient() {
   const [token, setToken] = useState("");
@@ -49,6 +120,9 @@ export function HermesClient() {
   const [members, setMembers] = useState<ConversationMember[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [loadingConversationData, setLoadingConversationData] = useState(false);
+  const [tdlightConnectionId, setTdlightConnectionId] = useState<number | null>(null);
+  const [availableChannels, setAvailableChannels] = useState<TdlightAvailableChannel[]>([]);
+  const [loadingAvailableChannels, setLoadingAvailableChannels] = useState(false);
   const [drawerMode, setDrawerMode] = useState<DrawerMode>(null);
   const [drawerConversationId, setDrawerConversationId] = useState<number | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -61,6 +135,7 @@ export function HermesClient() {
   const toastIdRef = useRef(1);
   const lastReadConversationIdRef = useRef<number | null>(null);
   const conversationLoadSeqRef = useRef(0);
+  const conversationsRef = useRef<ConversationSummary[]>([]);
   const wsSessionRef = useRef<ConversationSocketSession | null>(null);
   const typingTimeoutsRef = useRef<Record<string, number>>({});
   const wasWsConnectedRef = useRef(false);
@@ -75,6 +150,26 @@ export function HermesClient() {
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId],
   );
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
+    if (!me) {
+      return;
+    }
+
+    if (booting || authLoading) {
+      return;
+    }
+
+    if (!selectedConversationId && conversations.length === 0) {
+      return;
+    }
+
+    writeLastConversationId(me, selectedConversationId);
+  }, [authLoading, booting, conversations.length, me, selectedConversationId]);
   const selectedTypingNames = useMemo(() => {
     if (!selectedConversationId) {
       return [];
@@ -102,6 +197,24 @@ export function HermesClient() {
     }, 4200);
   }, []);
 
+  const withClientTimeout = useCallback(async <T,>(promise: Promise<T>, timeoutMs: number, message: string) => {
+    let timeoutId: number | null = null;
+    try {
+      return await Promise.race<T>([
+        promise,
+        new Promise<T>((_, reject) => {
+          timeoutId = window.setTimeout(() => {
+            reject(new Error(message));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    }
+  }, []);
+
   const clearSession = useCallback(() => {
     writeStoredAccessToken("");
     setToken("");
@@ -112,6 +225,8 @@ export function HermesClient() {
     setMembers([]);
     setTypingByConversation({});
     setReadByConversation({});
+    setTdlightConnectionId(null);
+    setAvailableChannels([]);
     setDrawerMode(null);
     setDrawerConversationId(null);
   }, []);
@@ -324,19 +439,30 @@ export function HermesClient() {
     });
   }, []);
 
-  const loadConversations = useCallback(async () => {
-    if (!token) {
+  const loadConversations = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!token || !me) {
       return;
     }
 
-    setLoadingConversations(true);
+    const { silent = false } = options;
+
+    if (!silent) {
+      setLoadingConversations(true);
+    }
     try {
       const nextConversations = await request<ConversationSummary[]>("/api/conversations");
       setConversations(nextConversations);
+      const rememberedConversationId = readLastConversationId(me);
 
       setSelectedConversationId((current) => {
         if (current && nextConversations.some((conversation) => conversation.id === current)) {
           return current;
+        }
+        if (
+          rememberedConversationId &&
+          nextConversations.some((conversation) => conversation.id === rememberedConversationId)
+        ) {
+          return rememberedConversationId;
         }
         return nextConversations[0]?.id ?? null;
       });
@@ -345,8 +471,61 @@ export function HermesClient() {
         current && nextConversations.some((conversation) => conversation.id === current) ? current : null,
       );
     } finally {
-      setLoadingConversations(false);
+      if (!silent) {
+        setLoadingConversations(false);
+      }
     }
+  }, [me, request, token]);
+
+  const loadAvailableChannels = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!token) {
+      return;
+    }
+
+    const { silent = false } = options;
+    if (!silent) {
+      setLoadingAvailableChannels(true);
+    }
+
+    try {
+      const connections = await withClientTimeout(
+        request<TdlightConnection[]>("/api/tdlight/connections"),
+        CHANNELS_REFRESH_TIMEOUT_MS,
+        "Истекло время ожидания списка Telegram-сессий.",
+      );
+      const primaryConnection = pickAuthorizedTdlightConnection(connections);
+      setTdlightConnectionId(primaryConnection?.id ?? null);
+
+      if (!primaryConnection) {
+        setAvailableChannels([]);
+        return;
+      }
+
+      const nextChannels = await withClientTimeout(
+        request<TdlightAvailableChannel[]>(
+          `/api/tdlight/channels?tdlightConnectionId=${primaryConnection.id}`,
+        ),
+        CHANNELS_REFRESH_TIMEOUT_MS,
+        "Истекло время ожидания списка Telegram-каналов.",
+      );
+      setAvailableChannels(nextChannels);
+    } catch (error) {
+      setAvailableChannels([]);
+      throw error;
+    } finally {
+      if (!silent) {
+        setLoadingAvailableChannels(false);
+      }
+    }
+  }, [request, token, withClientTimeout]);
+
+  const refreshSessionState = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+
+    const updatedUser = await request<AuthUser>("/api/auth/me");
+    setMe(updatedUser);
   }, [request, token]);
 
   const loadConversationData = useCallback(
@@ -356,7 +535,17 @@ export function HermesClient() {
     ) => {
       const { includeMembers = true, markRead = true } = options;
       const requestSeq = ++conversationLoadSeqRef.current;
+      const targetConversation = conversationsRef.current.find((conversation) => conversation.id === conversationId) ?? null;
+      const shouldCacheMessages = targetConversation !== null;
       setLoadingConversationData(true);
+
+      if (shouldCacheMessages) {
+        const cachedMessages = readChannelMessageCache(token, conversationId);
+        if (cachedMessages && requestSeq === conversationLoadSeqRef.current) {
+          setMessages(cachedMessages);
+        }
+      }
+
       try {
         const requests: [Promise<ConversationMessage[]>, Promise<ConversationMember[]> | Promise<null>] = [
           request<ConversationMessage[]>(`/api/conversations/${conversationId}/messages`),
@@ -370,6 +559,9 @@ export function HermesClient() {
           return;
         }
         setMessages(nextMessages);
+        if (shouldCacheMessages) {
+          writeChannelMessageCache(token, conversationId, nextMessages);
+        }
         if (nextMembers) {
           setMembers(nextMembers);
           setReadByConversation((current) => ({
@@ -392,13 +584,25 @@ export function HermesClient() {
         if (markRead && lastReadConversationIdRef.current !== conversationId) {
           await markConversationReadLocally(conversationId);
         }
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          (error.message.includes("HTTP 404") || error.message.toLowerCase().includes("conversation") && error.message.toLowerCase().includes("not found"))
+        ) {
+          setMessages([]);
+          setMembers([]);
+          removeChannelMessageCache(token, conversationId);
+          setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
+          setSelectedConversationId((current) => (current === conversationId ? null : current));
+        }
+        throw error;
       } finally {
         if (requestSeq === conversationLoadSeqRef.current) {
           setLoadingConversationData(false);
         }
       }
     },
-    [markConversationReadLocally, request],
+    [markConversationReadLocally, request, token],
   );
 
   const hydrateSession = useCallback(
@@ -412,7 +616,12 @@ export function HermesClient() {
         setMe(user);
         const nextConversations = await apiRequest<ConversationSummary[]>(incomingToken, "/api/conversations");
         setConversations(nextConversations);
-        setSelectedConversationId(nextConversations[0]?.id ?? null);
+        const rememberedConversationId = readLastConversationId(user);
+        setSelectedConversationId(
+          rememberedConversationId && nextConversations.some((conversation) => conversation.id === rememberedConversationId)
+            ? rememberedConversationId
+            : (nextConversations[0]?.id ?? null),
+        );
       } catch (error) {
         clearSession();
         throw error;
@@ -442,7 +651,25 @@ export function HermesClient() {
       await hydrateSession(refreshed);
     };
 
-    restoreSession()
+    const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number) => {
+      let timeoutId: number | null = null;
+      try {
+        return await Promise.race<T>([
+          promise,
+          new Promise<T>((_, reject) => {
+            timeoutId = window.setTimeout(() => {
+              reject(new Error("Истекло время ожидания запуска сессии."));
+            }, timeoutMs);
+          }),
+        ]);
+      } finally {
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+        }
+      }
+    };
+
+    withTimeout(restoreSession(), SESSION_BOOT_TIMEOUT_MS)
       .catch((error) => {
         clearSession();
         if (error instanceof Error && error.message.includes("HTTP 401")) {
@@ -458,6 +685,14 @@ export function HermesClient() {
   useEffect(() => {
     void cleanupProtectedMediaCache(true);
   }, [token]);
+
+  useEffect(() => {
+    if (!token || !me) {
+      return;
+    }
+
+    loadAvailableChannels({ silent: true }).catch(() => {});
+  }, [loadAvailableChannels, me, token]);
 
   useEffect(() => {
     if (!selectedConversationId || !token) {
@@ -535,9 +770,14 @@ export function HermesClient() {
         }
 
         const message = event.payload as ConversationMessage;
+        const targetConversation = conversationsRef.current.find((conversation) => conversation.id === message.conversationId) ?? null;
         const isSelectedConversation = message.conversationId === selectedConversationId;
         const shouldAutoRead =
           isSelectedConversation && typeof document !== "undefined" && document.visibilityState === "visible";
+
+        if (targetConversation) {
+          upsertChannelMessageCache(token, message);
+        }
 
         if (isSelectedConversation) {
           invalidatePendingConversationLoad();
@@ -571,14 +811,41 @@ export function HermesClient() {
         return;
       }
 
-      void loadConversations();
-      if (selectedConversationId && !wsConnected) {
+      if (!wsConnected) {
+        void loadConversations({ silent: true });
+      }
+      if (
+        selectedConversationId &&
+        selectedConversation &&
+        !isChannelConversation(selectedConversation) &&
+        !wsConnected
+      ) {
         void loadConversationData(selectedConversationId, { includeMembers: false, markRead: false });
       }
     }, 15000);
 
     return () => window.clearInterval(handle);
-  }, [loadConversationData, loadConversations, me, selectedConversationId, token, wsConnected]);
+  }, [loadConversationData, loadConversations, me, selectedConversation, selectedConversationId, token, wsConnected]);
+
+  useEffect(() => {
+    if (!selectedConversationId || !selectedConversation || !isChannelConversation(selectedConversation)) {
+      return;
+    }
+
+    const summaryTimestamp = selectedConversation.lastMessageCreatedAt;
+    const latestLoadedTimestamp = messages[messages.length - 1]?.createdAt ?? null;
+    if (!summaryTimestamp || summaryTimestamp === latestLoadedTimestamp || loadingConversationData) {
+      return;
+    }
+
+    void loadConversationData(selectedConversationId, { includeMembers: false, markRead: false }).catch(() => {});
+  }, [
+    loadConversationData,
+    loadingConversationData,
+    messages,
+    selectedConversation,
+    selectedConversationId,
+  ]);
 
   useEffect(() => {
     if (!token || !me) {
@@ -601,7 +868,7 @@ export function HermesClient() {
       return;
     }
 
-    void loadConversations();
+    void loadConversations({ silent: true });
     if (selectedConversationId) {
       void loadConversationData(selectedConversationId, { includeMembers: false, markRead: false });
     }
@@ -789,15 +1056,30 @@ export function HermesClient() {
 
   const deleteConversation = useCallback(
     async (conversationId: number) => {
-      await request(`/api/conversations/${conversationId}`, { method: "DELETE" });
+      const targetConversation = conversations.find((conversation) => conversation.id === conversationId) ?? null;
+      if (!targetConversation) {
+        return;
+      }
+
+      if (isChannelConversation(targetConversation)) {
+        await request(`/api/tdlight/subscriptions/conversation/${conversationId}`, { method: "DELETE" });
+        removeChannelMessageCache(token, conversationId);
+        pushToast("Канал отключён. Его можно подключить заново.", "success");
+      } else {
+        await request(`/api/conversations/${conversationId}`, { method: "DELETE" });
+        removeChannelMessageCache(token, conversationId);
+        pushToast("Чат удалён.", "success");
+      }
       setSelectedConversationId((current) => (current === conversationId ? null : current));
       setMessages([]);
       setMembers([]);
       setDrawerMode(null);
+      if (isChannelConversation(targetConversation)) {
+        await loadAvailableChannels({ silent: true });
+      }
       await loadConversations();
-      pushToast("Чат удалён.", "success");
     },
-    [loadConversations, pushToast, request],
+    [conversations, loadAvailableChannels, loadConversations, pushToast, request, token],
   );
 
   const createInvite = useCallback(async () => {
@@ -879,6 +1161,75 @@ export function HermesClient() {
     await loadConversationData(selectedConversationId);
   }, [loadConversationData, loadConversations, selectedConversationId]);
 
+  const refreshSidebarData = useCallback(async () => {
+    await loadConversations();
+    await loadAvailableChannels({ silent: true });
+  }, [loadAvailableChannels, loadConversations]);
+
+  const subscribeChannels = useCallback(
+    async (channels: TdlightAvailableChannel[]) => {
+      if (!tdlightConnectionId) {
+        pushToast("Сначала подключите Telegram через QR.", "error");
+        return;
+      }
+
+      const uniqueChannels = channels.filter(
+        (channel, index, list) =>
+          list.findIndex((candidate) => candidate.telegramChannelId === channel.telegramChannelId) === index,
+      );
+      if (uniqueChannels.length === 0) {
+        return;
+      }
+
+      let lastConversationId: number | null = null;
+      for (const channel of uniqueChannels) {
+        const subscription = await withClientTimeout(
+          request<{ conversationId: number }>(
+            "/api/tdlight/subscriptions",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                tdlightConnectionId,
+                telegramChannelId: channel.telegramChannelId,
+                telegramChannelHandle: channel.telegramChannelHandle,
+                channelTitle: channel.channelTitle,
+                avatarUrl: channel.avatarUrl,
+              }),
+            },
+          ),
+          CHANNEL_SUBSCRIBE_TIMEOUT_MS,
+          `Истекло время ожидания подключения канала «${channel.channelTitle}».`,
+        );
+        setAvailableChannels((current) =>
+          current.filter((candidate) => candidate.telegramChannelId !== channel.telegramChannelId),
+        );
+        lastConversationId = subscription.conversationId;
+      }
+
+      await loadAvailableChannels({ silent: true });
+      await loadConversations({ silent: true });
+      if (lastConversationId) {
+        setSelectedConversationId(lastConversationId);
+        await loadConversationData(lastConversationId, { includeMembers: true, markRead: false });
+      }
+
+      pushToast(
+        uniqueChannels.length === 1
+          ? `Канал «${uniqueChannels[0]?.channelTitle ?? "Telegram"}» подключён.`
+          : `Подключено каналов: ${uniqueChannels.length}.`,
+        "success",
+      );
+    },
+    [loadAvailableChannels, loadConversationData, loadConversations, pushToast, request, tdlightConnectionId, withClientTimeout],
+  );
+
+  const subscribeChannel = useCallback(
+    async (channel: TdlightAvailableChannel) => {
+      await subscribeChannels([channel]);
+    },
+    [subscribeChannels],
+  );
+
   if (booting) {
     return (
       <div
@@ -936,8 +1287,13 @@ export function HermesClient() {
           typingNames={selectedTypingNames}
           loadingConversations={loadingConversations}
           loadingConversationData={loadingConversationData}
+          availableChannels={availableChannels}
+          loadingAvailableChannels={loadingAvailableChannels}
           onLogout={logout}
-          onRefreshConversations={loadConversations}
+          onRefreshConversations={refreshSidebarData}
+          onRefreshAvailableChannels={loadAvailableChannels}
+          onSubscribeChannel={subscribeChannel}
+          onSubscribeChannels={subscribeChannels}
           onSelectConversation={setSelectedConversationId}
           onOpenDrawer={(mode, conversationId) => {
             setDrawerMode(mode);
@@ -947,6 +1303,7 @@ export function HermesClient() {
           onCreateConversation={createConversation}
           onJoinConversation={joinConversation}
           onUpdateProfile={updateProfile}
+          onRefreshSessionState={refreshSessionState}
           onUpdateConversation={updateConversation}
           onDeleteConversation={deleteConversation}
           onCreateInvite={createInvite}

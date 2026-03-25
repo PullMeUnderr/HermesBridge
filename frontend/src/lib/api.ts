@@ -14,8 +14,25 @@ export interface AuthRefreshResponse {
 }
 
 function getApiBaseUrl() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ?? ""
+  const explicitBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim()
+  if (explicitBaseUrl) {
+    return explicitBaseUrl
+  }
+
+  if (typeof window !== "undefined") {
+    const { hostname, port } = window.location
+    const isLocalHost =
+      hostname === "127.0.0.1" || hostname === "localhost" || hostname === "0.0.0.0"
+
+    if (isLocalHost && (port === "3002" || port === "3003")) {
+      return "http://127.0.0.1:8082"
+    }
+  }
+
+  return ""
 }
+
+export { getApiBaseUrl }
 
 function shouldAttachNgrokBypassHeader(hostname: string) {
   return /\.ngrok(-free)?\.(app|dev|io|pizza)$/i.test(hostname)
@@ -85,6 +102,7 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
 export async function exchangeBootstrapToken<TUser>(token: string) {
   const response = await fetch(resolveUrl("/api/auth/session"), {
     method: "POST",
+    cache: "no-store",
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
@@ -102,6 +120,7 @@ export async function registerHermesAccount<TUser>(payload: {
 }) {
   const response = await fetch(resolveUrl("/api/auth/register"), {
     method: "POST",
+    cache: "no-store",
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
@@ -118,6 +137,7 @@ export async function loginHermesAccount<TUser>(payload: {
 }) {
   const response = await fetch(resolveUrl("/api/auth/login"), {
     method: "POST",
+    cache: "no-store",
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
@@ -131,6 +151,7 @@ export async function loginHermesAccount<TUser>(payload: {
 export async function refreshAccessToken() {
   const response = await fetch(resolveUrl("/api/auth/refresh"), {
     method: "POST",
+    cache: "no-store",
     credentials: "include",
   })
 
@@ -156,6 +177,7 @@ export async function completeHermesRegistration<TUser>(
 export async function logoutSession() {
   const response = await fetch(resolveUrl("/api/auth/logout"), {
     method: "POST",
+    cache: "no-store",
     credentials: "include",
   })
 
@@ -170,6 +192,7 @@ export async function apiRequest<T>(
   const isFormData = options.body instanceof FormData
   const response = await fetch(resolveUrl(path), {
     ...options,
+    cache: "no-store",
     credentials: "include",
     headers: buildHeaders(token, options.headers, isFormData),
   })
@@ -200,4 +223,28 @@ export async function fetchProtectedBlobUrl(token: string, src: string) {
   })
 
   return URL.createObjectURL(blob)
+}
+
+export async function fetchProtectedBlob(token: string, src: string) {
+  if (!src) {
+    return null
+  }
+
+  const url =
+    src.startsWith("http://") || src.startsWith("https://")
+      ? src
+      : resolveUrl(src)
+
+  return getProtectedMediaBlob(token, url, async () => {
+    const response = await fetch(url, {
+      credentials: "include",
+      headers: buildHeaders(token),
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    return response
+  })
 }

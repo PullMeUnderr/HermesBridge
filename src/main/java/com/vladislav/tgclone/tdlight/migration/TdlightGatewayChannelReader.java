@@ -36,6 +36,7 @@ public class TdlightGatewayChannelReader implements TdlightChannelReader {
                 migration.getLastSeenRemoteMessageId(),
                 policy.backfillHistoryEnabled(),
                 policy.publicChannelMessageImportLimit(),
+                policy.initialHistoricalPostCount(),
                 policy.mediaImportEnabled()
             )
         );

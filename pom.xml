@@ -147,6 +147,16 @@
                 </dependency>
             </dependencies>
         </profile>
+        <profile>
+            <id>tdlight-native-linux-amd64-gnu-ssl1</id>
+            <dependencies>
+                <dependency>
+                    <groupId>it.tdlight</groupId>
+                    <artifactId>tdlight-natives</artifactId>
+                    <classifier>linux_amd64_gnu_ssl1</classifier>
+                </dependency>
+            </dependencies>
+        </profile>
     </profiles>
 
     <build>

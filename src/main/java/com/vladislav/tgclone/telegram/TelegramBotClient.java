@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -29,6 +31,9 @@ import org.springframework.web.client.RestClient;
 
 @Component
 public class TelegramBotClient {
+
+    private static final Logger log = LoggerFactory.getLogger(TelegramBotClient.class);
+    private static final int MULTIPART_RETRY_ATTEMPTS = 3;
 
     private final TelegramProperties telegramProperties;
     private final RestClient botRestClient;
@@ -319,8 +324,38 @@ public class TelegramBotClient {
             .POST(HttpRequest.BodyPublishers.ofByteArray(body))
             .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        return response.body();
+        IOException lastException = null;
+        for (int attempt = 1; attempt <= MULTIPART_RETRY_ATTEMPTS; attempt++) {
+            try {
+                HttpResponse<String> response = httpClient.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
+                );
+                return response.body();
+            } catch (IOException ex) {
+                lastException = ex;
+                if (attempt >= MULTIPART_RETRY_ATTEMPTS) {
+                    break;
+                }
+                log.warn(
+                    "Telegram multipart request {} failed on attempt {}/{}: {}",
+                    endpoint,
+                    attempt,
+                    MULTIPART_RETRY_ATTEMPTS,
+                    ex.getMessage()
+                );
+                try {
+                    Thread.sleep(350L * attempt);
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt();
+                    throw interruptedException;
+                }
+            }
+        }
+
+        throw lastException == null
+            ? new IOException("Telegram multipart request failed without an explicit IOException")
+            : lastException;
     }
 
     private String resolveFilename(String originalFilename, String filePath, ConversationAttachmentKind kind) {

@@ -313,6 +313,34 @@
   word-break: break-word;
 }
 
+.mediaLoading {
+  display: grid;
+  gap: 8px;
+  min-width: 180px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mediaLoading strong {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.mediaLoading span:last-child {
+  color: var(--muted);
+}
+
+.mediaLoadingSpinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(123, 195, 255, 0.2);
+  border-top-color: #7bc3ff;
+  animation: mediaSpin 0.8s linear infinite;
+}
+
 .downloadButton {
   padding: 7px 10px;
   border-radius: 10px;
@@ -335,6 +363,16 @@
 
 .document span {
   color: var(--muted);
+}
+
+@keyframes mediaSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .timestamp {

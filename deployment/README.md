@@ -23,9 +23,48 @@
 - `hermesbridge-ngrok.service` — optional ngrok HTTPS tunnel
 - `hermesbridge-ngrok.sh` — helper script for ngrok
 - `deploy-vps.sh` — сборка и выкладка jar по SSH
+- `deploy-registration-test.sh` — выкладка test contour на `3003/8082` без затрагивания `3002/8081`
+- `hermes-registration-local.env.example` — безопасный шаблон env для локального backend
+- `hermes-registration-backend.env.example` — безопасный шаблон env для backend test contour
 - `hermesbridge-postgres-backup.sh` — backup локальной базы
 - `hermesbridge-postgres-backup.service` — systemd service для backup
 - `hermesbridge-postgres-backup.timer` — ежедневный timer для backup
+
+Для передачи работы фронтендеру см.:
+
+- [`docs/FRONTEND_HANDOFF.md`](../docs/FRONTEND_HANDOFF.md)
+- [`docs/CODEX_FRONTEND_HANDOFF_PROMPT.md`](../docs/CODEX_FRONTEND_HANDOFF_PROMPT.md)
+
+## Test contour `3003/8082`
+
+Для отдельного test contour на сервере используем:
+
+- backend service: `hermesbridge-registration-backend.service`
+- frontend service: `hermesbridge-registration-frontend.service`
+- backend port: `8082`
+- frontend port: `3003`
+
+С локальной машины запуск:
+
+```bash
+KEY_PATH=/path/to/private_key ./deployment/deploy-registration-test.sh root@SERVER_IP
+```
+
+Если нужен другой публичный адрес backend для клиентского build:
+
+```bash
+KEY_PATH=/path/to/private_key \
+NEXT_PUBLIC_API_BASE_URL=http://SERVER_IP:8082 \
+./deployment/deploy-registration-test.sh root@SERVER_IP
+```
+
+Скрипт:
+
+- собирает backend jar
+- собирает frontend standalone runtime
+- заливает только jar и frontend runtime tarball
+- перезапускает только `3003/8082`
+- не трогает `3002/8081`, nginx и production domain
 
 ## Базовый порядок
 

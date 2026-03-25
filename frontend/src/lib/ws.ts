@@ -5,6 +5,7 @@ import type {
   ConversationSocketSummaryPayload,
   ConversationTypingPayload,
 } from "@/types/api";
+import { getApiBaseUrl } from "@/lib/api";
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -29,7 +30,7 @@ function isConversationSocketEvent(
 }
 
 function getWebSocketUrl() {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  const baseUrl = getApiBaseUrl();
   if (baseUrl) {
     const url = new URL("/ws", baseUrl);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";

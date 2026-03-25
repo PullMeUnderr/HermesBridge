@@ -28,6 +28,26 @@ export interface ConversationSummary {
   muted: boolean;
 }
 
+export interface TdlightConnection {
+  id: number;
+  userAccountId: number;
+  status: string;
+  phoneMask: string | null;
+  tdlightUserId: string | null;
+  createdAt: string;
+  lastVerifiedAt: string | null;
+}
+
+export interface TdlightAvailableChannel {
+  telegramChannelId: string;
+  telegramChannelHandle: string | null;
+  channelTitle: string;
+  avatarUrl: string | null;
+  subscribed: boolean;
+  subscriptionId: number | null;
+  conversationId: number | null;
+}
+
 export interface ConversationReplyAttachment {
   kind: string;
   fileName: string;

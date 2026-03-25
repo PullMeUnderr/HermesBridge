@@ -194,6 +194,12 @@ public class ConversationService {
     @Transactional
     public void deleteConversation(AuthenticatedUser authenticatedUser, Long conversationId) {
         Conversation conversation = requireOwnerMembership(authenticatedUser, conversationId).getConversation();
+        deleteConversationSystem(conversation.getId());
+    }
+
+    @Transactional
+    public void deleteConversationSystem(Long conversationId) {
+        Conversation conversation = getConversation(conversationId);
         String avatarStorageKey = conversation.getAvatarStorageKey();
 
         List<ConversationAttachment> attachments = conversationAttachmentRepository.findAllByMessage_Conversation_Id(conversationId);
@@ -534,6 +540,36 @@ public class ConversationService {
             throw new NotFoundException("Conversation avatar not found");
         }
         return mediaStorageService.openStream(conversation.getAvatarStorageKey());
+    }
+
+    @Transactional
+    public void updateConversationAvatarSystem(
+        Long conversationId,
+        AvatarUpload avatarUpload
+    ) {
+        if (conversationId == null || avatarUpload == null || avatarUpload.content() == null || avatarUpload.content().length == 0) {
+            return;
+        }
+
+        validateAvatarUpload(avatarUpload);
+        Conversation conversation = getConversation(conversationId);
+        StoredMediaFile storedMediaFile = mediaStorageService.store(
+            avatarUpload.originalFilename(),
+            avatarUpload.mimeType(),
+            avatarUpload.content()
+        );
+        String previousStorageKey = conversation.getAvatarStorageKey();
+        conversation.updateAvatar(
+            storedMediaFile.storageKey(),
+            storedMediaFile.mimeType(),
+            clipFilename(storedMediaFile.originalFilename()),
+            clock.instant()
+        );
+        conversationRepository.save(conversation);
+        if (previousStorageKey != null && !previousStorageKey.isBlank()
+            && !previousStorageKey.equals(storedMediaFile.storageKey())) {
+            mediaStorageService.delete(previousStorageKey);
+        }
     }
 
     private String normalizeAuthorName(String value) {

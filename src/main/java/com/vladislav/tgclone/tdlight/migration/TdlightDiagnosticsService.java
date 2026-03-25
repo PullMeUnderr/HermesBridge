@@ -67,6 +67,7 @@ public class TdlightDiagnosticsService {
         TdlightIngestionPolicy policy = new TdlightIngestionPolicy(
             tdlightProperties.backfillHistoryEnabled(),
             tdlightProperties.publicChannelMessageImportLimit(),
+            0,
             tdlightProperties.importedPostRetentionDays(),
             tdlightProperties.mediaImportEnabled(),
             tdlightProperties.maxImportedMediaBytes(),
@@ -84,6 +85,7 @@ public class TdlightDiagnosticsService {
                 null,
                 policy.backfillHistoryEnabled(),
                 policy.publicChannelMessageImportLimit(),
+                policy.initialHistoricalPostCount(),
                 policy.mediaImportEnabled()
             )
         );

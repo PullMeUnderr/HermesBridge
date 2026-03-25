@@ -102,6 +102,7 @@ export default function SidebarLabPage() {
           onCreateConversation={noop}
           onJoinConversation={noop}
           onUpdateProfile={noop}
+          onRefreshSessionState={noop}
           onUpdateConversation={noop}
           onDeleteConversation={noop}
         />

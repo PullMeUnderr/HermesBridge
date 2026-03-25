@@ -21,6 +21,7 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
@@ -33,10 +34,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     private final ApiTokenService apiTokenService;
     private final AccountIdentityService accountIdentityService;
@@ -104,8 +109,16 @@ public class AuthController {
         HttpServletRequest request
     ) {
         String refreshToken = readRefreshCookie(request);
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
         AuthSessionTokens sessionTokens = apiTokenService.refreshSession(refreshToken)
-            .orElseThrow(() -> new IllegalArgumentException("Refresh token is invalid"));
+            .orElse(null);
+        if (sessionTokens == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header(HttpHeaders.SET_COOKIE, clearRefreshCookie(request.isSecure()).toString())
+                .build();
+        }
 
         return ResponseEntity.ok()
             .header(
@@ -120,7 +133,9 @@ public class AuthController {
         HttpServletRequest request
     ) {
         String refreshToken = readRefreshCookie(request);
-        apiTokenService.revokeSessionByRefreshToken(refreshToken);
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            apiTokenService.revokeSessionByRefreshToken(refreshToken);
+        }
         return ResponseEntity.noContent()
             .header(HttpHeaders.SET_COOKIE, clearRefreshCookie(request.isSecure()).toString())
             .build();
@@ -131,8 +146,17 @@ public class AuthController {
         UserAccount userAccount = userAccountService.requireActiveUser(authenticatedUser.userId());
         TelegramIdentity telegramIdentity = userAccountService.findTelegramIdentityByUserId(authenticatedUser.userId())
             .orElse(null);
-
-        return toResponse(userAccount, telegramIdentity);
+        AuthenticatedUserResponse response = toResponse(userAccount, telegramIdentity);
+        log.info(
+            "Auth /me resolved userId={} username={} telegramLinked={} telegramIdentityPresent={} telegramUserId={} telegramUsername={}",
+            userAccount.getId(),
+            userAccount.getUsername(),
+            response.telegramLinked(),
+            telegramIdentity != null,
+            response.telegramUserId(),
+            response.telegramUsername()
+        );
+        return response;
     }
 
     @PostMapping("/link/telegram/start")
@@ -198,22 +222,20 @@ public class AuthController {
     }
 
     private ResponseEntity<InputStreamResource> avatarResponse(UserAccount userAccount) throws IOException {
+        if (userAccount == null || userAccount.getAvatarStorageKey() == null || userAccount.getAvatarStorageKey().isBlank()) {
+            return ResponseEntity.notFound().build();
+        }
+
         InputStreamResource body;
         try {
             body = new InputStreamResource(mediaStorageService.openStream(userAccount.getAvatarStorageKey()));
-        } catch (IllegalStateException ex) {
-            throw new NotFoundException("Avatar not found");
+        } catch (Exception ex) {
+            return ResponseEntity.notFound().build();
         }
 
         return ResponseEntity.ok()
-            .cacheControl(CacheControl.noStore().mustRevalidate())
+            .cacheControl(CacheControl.maxAge(java.time.Duration.ofDays(30)).cachePrivate())
             .contentType(resolveMediaType(userAccount.getAvatarMimeType()))
-            .header(
-                HttpHeaders.CONTENT_DISPOSITION,
-                ContentDisposition.inline().filename(userAccount.getAvatarOriginalFilename()).build().toString()
-            )
-            .header(HttpHeaders.PRAGMA, "no-cache")
-            .header(HttpHeaders.EXPIRES, "0")
             .body(body);
     }
 
@@ -291,7 +313,7 @@ public class AuthController {
         TdlightAccountBindingService.TdlightBoundAccount tdlightBoundAccount = telegramIdentity == null
             ? tdlightAccountBindingService.findBoundAccount(userAccount).orElse(null)
             : null;
-        return new AuthenticatedUserResponse(
+        AuthenticatedUserResponse response = new AuthenticatedUserResponse(
             userAccount.getId(),
             userAccount.getTenantKey(),
             userAccount.getUsername(),
@@ -312,6 +334,16 @@ public class AuthController {
                 ? tdlightBoundAccount == null ? null : tdlightBoundAccount.verifiedAt()
                 : telegramIdentity.getLastSeenAt()
         );
+        log.info(
+            "Auth response computed userId={} telegramIdentityPresent={} tdlightBoundPresent={} tdlightConnectionId={} telegramLinked={} telegramUserId={}",
+            userAccount.getId(),
+            telegramIdentity != null,
+            tdlightBoundAccount != null,
+            tdlightBoundAccount == null ? null : tdlightBoundAccount.tdlightConnectionId(),
+            response.telegramLinked(),
+            response.telegramUserId()
+        );
+        return response;
     }
 
     private ResponseEntity<AuthSessionResponse> buildSessionResponse(

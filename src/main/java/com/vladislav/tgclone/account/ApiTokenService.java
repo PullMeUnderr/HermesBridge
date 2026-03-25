@@ -9,6 +9,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
@@ -187,15 +188,27 @@ public class ApiTokenService {
                 existingUser.updateDisplayName(displayName);
                 return existingUser;
             })
-            .orElseGet(() -> userAccountRepository.save(
-                new UserAccount(
-                    tenantKey,
-                    username,
-                    displayName,
-                    true,
-                    now
-                )
-            ));
+            .orElseGet(() -> {
+                try {
+                    return userAccountRepository.save(
+                        new UserAccount(
+                            tenantKey,
+                            username,
+                            displayName,
+                            true,
+                            now
+                        )
+                    );
+                } catch (DataIntegrityViolationException exception) {
+                    return userAccountRepository.findByUsername(username)
+                        .map(existingUser -> {
+                            existingUser.activate();
+                            existingUser.updateDisplayName(displayName);
+                            return existingUser;
+                        })
+                        .orElseThrow(() -> exception);
+                }
+            });
     }
 
     private AuthSessionTokens issueSession(UserAccount userAccount) {

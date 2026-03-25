@@ -4,13 +4,12 @@ import com.vladislav.tgclone.account.UserAccount;
 import com.vladislav.tgclone.tdlight.migration.TdlightRuntimeAdapter;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.Optional;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@ConditionalOnProperty(prefix = "app.tdlight", name = "enabled", havingValue = "true")
 public class TdlightAccountBindingService {
 
     private final TdlightConnectionRepository tdlightConnectionRepository;
@@ -61,10 +60,17 @@ public class TdlightAccountBindingService {
             return Optional.empty();
         }
 
-        return tdlightConnectionRepository
-            .findFirstByUserAccount_IdAndStatusOrderByCreatedAtDesc(userAccount.getId(), TdlightConnectionStatus.ACTIVE)
+        return tdlightConnectionRepository.findAllByUserAccount_IdOrderByCreatedAtDesc(userAccount.getId()).stream()
+            .filter(connection -> connection.getStatus() == TdlightConnectionStatus.ACTIVE)
             .filter(connection -> connection.getVerifiedAt() != null)
             .filter(connection -> connection.getTdlightUserId() != null && !connection.getTdlightUserId().isBlank())
+            .sorted(
+                Comparator.comparing(
+                    TdlightConnection::getVerifiedAt,
+                    Comparator.nullsLast(Comparator.reverseOrder())
+                ).thenComparing(TdlightConnection::getCreatedAt, Comparator.reverseOrder())
+            )
+            .findFirst()
             .map(this::toBoundAccount);
     }
 

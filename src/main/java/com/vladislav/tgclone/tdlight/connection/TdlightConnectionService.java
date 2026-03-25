@@ -13,7 +13,8 @@ public interface TdlightConnectionService {
     TdlightConnectionDescriptor createDevelopmentConnection(
         UserAccount userAccount,
         String phoneMask,
-        String tdlightUserId
+        String tdlightUserId,
+        boolean forceNew
     );
 
     boolean hasActiveConnection(UserAccount userAccount);

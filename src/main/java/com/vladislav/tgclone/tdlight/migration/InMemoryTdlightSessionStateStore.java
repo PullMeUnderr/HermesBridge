@@ -2,6 +2,7 @@ package com.vladislav.tgclone.tdlight.migration;
 
 import com.vladislav.tgclone.tdlight.connection.TdlightConnection;
 import com.vladislav.tgclone.tdlight.condition.ConditionalOnTdlightRealMode;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Map;
 import java.util.Optional;
@@ -37,11 +38,12 @@ public class InMemoryTdlightSessionStateStore implements TdlightSessionStateStor
         String filesDirectory
     ) {
         Long connectionId = requireConnectionId(connection);
+        String sessionKey = "tdlight-session-" + connectionId;
         TdlightSessionBinding binding = new TdlightSessionBinding(
             connectionId,
-            "tdlight-session-" + connectionId,
-            databaseDirectory,
-            filesDirectory,
+            sessionKey,
+            resolveSessionDirectory(databaseDirectory, sessionKey),
+            resolveSessionDirectory(filesDirectory, sessionKey),
             clock.instant()
         );
         bindings.put(connectionId, binding);
@@ -61,5 +63,12 @@ public class InMemoryTdlightSessionStateStore implements TdlightSessionStateStor
             throw new IllegalArgumentException("TDLight connection id is required for session binding");
         }
         return connection.getId();
+    }
+
+    private String resolveSessionDirectory(String baseDirectory, String sessionKey) {
+        if (baseDirectory == null || baseDirectory.isBlank()) {
+            throw new IllegalArgumentException("TDLight session base directory is required");
+        }
+        return Path.of(baseDirectory.trim()).resolve(sessionKey).toString();
     }
 }

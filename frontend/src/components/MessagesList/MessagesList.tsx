@@ -28,10 +28,13 @@ interface MessagesListProps {
   token: string;
   me: AuthUser;
   conversationId: number;
+  conversationTitle: string;
+  conversationAvatarUrl?: string | null;
   messages: ConversationMessage[];
   currentUserLastReadAt: string | null;
   readReceipts: ConversationReadPayload[];
   loading: boolean;
+  emptyStateVariant?: "chat" | "channel";
   onReply: (messageId: number) => void;
   onOpenPhotoViewer: (items: Array<{ src: string; fileName: string }>, activeIndex: number) => void;
 }
@@ -67,8 +70,8 @@ function messageMentionsUser(message: ConversationMessage, username: string) {
 }
 
 function VideoNoteCard({ token, attachment }: { token: string; attachment: ConversationAttachment }) {
-  const { ref, visible } = useLazyVisible<HTMLDivElement>();
-  const resolvedSrc = useProtectedObjectUrl(token, attachment.contentUrl, visible);
+  const { ref } = useLazyVisible<HTMLDivElement>();
+  const resolvedSrc = useProtectedObjectUrl(token, attachment.contentUrl, true, attachment);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
 
@@ -143,8 +146,8 @@ function formatAudioTime(value: number) {
 }
 
 function VoiceCard({ token, attachment }: { token: string; attachment: ConversationAttachment }) {
-  const { ref, visible } = useLazyVisible<HTMLDivElement>();
-  const resolvedSrc = useProtectedObjectUrl(token, attachment.contentUrl, visible);
+  const { ref } = useLazyVisible<HTMLDivElement>();
+  const resolvedSrc = useProtectedObjectUrl(token, attachment.contentUrl, true, attachment);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -229,7 +232,24 @@ function AttachmentCard({
   onOpenPhotoViewer: (item: { src: string; fileName: string }) => void;
 }) {
   const { ref, visible } = useLazyVisible<HTMLDivElement>();
-  const resolvedSrc = useProtectedObjectUrl(token, attachment.contentUrl, visible);
+  const resolvedSrc = useProtectedObjectUrl(token, attachment.contentUrl, true, attachment);
+  const treatAsMedia =
+    isImageAttachment(attachment.mimeType, attachment.kind, attachment.fileName) ||
+    isVideoNoteAttachment(attachment.kind) ||
+    isVideoAttachment(attachment.mimeType, attachment.kind, attachment.fileName) ||
+    isAudioAttachment(attachment.mimeType, attachment.kind, attachment.fileName);
+
+  if (!resolvedSrc && treatAsMedia) {
+    return (
+      <div ref={ref}>
+        <div className={styles.mediaLoading}>
+          <span className={styles.mediaLoadingSpinner} />
+          <strong>{attachment.fileName}</strong>
+          <span>Загружаем предпросмотр...</span>
+        </div>
+      </div>
+    );
+  }
 
   async function handleDownload() {
     const objectUrl = await fetchProtectedBlobUrl(token, attachment.contentUrl);
@@ -243,7 +263,7 @@ function AttachmentCard({
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
   }
 
-  if (resolvedSrc && isImageAttachment(attachment.mimeType, attachment.kind)) {
+  if (resolvedSrc && isImageAttachment(attachment.mimeType, attachment.kind, attachment.fileName)) {
     return (
       <div ref={ref}>
         <button
@@ -262,7 +282,7 @@ function AttachmentCard({
     return <VideoNoteCard token={token} attachment={attachment} />;
   }
 
-  if (resolvedSrc && isVideoAttachment(attachment.mimeType, attachment.kind)) {
+  if (resolvedSrc && isVideoAttachment(attachment.mimeType, attachment.kind, attachment.fileName)) {
     return (
       <div ref={ref}>
         <video className={styles.video} src={resolvedSrc} controls playsInline preload="metadata" />
@@ -270,7 +290,7 @@ function AttachmentCard({
     );
   }
 
-  if (resolvedSrc && isAudioAttachment(attachment.mimeType, attachment.kind)) {
+  if (resolvedSrc && isAudioAttachment(attachment.mimeType, attachment.kind, attachment.fileName)) {
     return <VoiceCard token={token} attachment={attachment} />;
   }
 
@@ -378,10 +398,13 @@ export function MessagesList({
   token,
   me,
   conversationId,
+  conversationTitle,
+  conversationAvatarUrl,
   messages,
   currentUserLastReadAt,
   readReceipts,
   loading,
+  emptyStateVariant = "chat",
   onReply,
   onOpenPhotoViewer,
 }: MessagesListProps) {
@@ -430,7 +453,11 @@ export function MessagesList({
     return (
       <div className={styles.empty}>
         <strong>Пока без сообщений</strong>
-        <span>Отправь первое сообщение, файл, голосовое или кружок.</span>
+        <span>
+          {emptyStateVariant === "channel"
+            ? "Постов после подключения пока не было."
+            : "Отправь первое сообщение, файл, голосовое или кружок."}
+        </span>
       </div>
     );
   }
@@ -458,8 +485,20 @@ export function MessagesList({
             <Avatar
               className={styles.avatarSlot}
               token={token}
-              name={message.authorDisplayName}
-              src={own ? me.avatarUrl : (message.authorUserId ? `/api/auth/users/${message.authorUserId}/avatar` : undefined)}
+              name={
+                !own && message.sourceTransport === "TELEGRAM" && !message.authorUserId
+                  ? conversationTitle
+                  : message.authorDisplayName
+              }
+              src={
+                own
+                  ? me.avatarUrl
+                  : message.authorUserId
+                    ? `/api/auth/users/${message.authorUserId}/avatar`
+                    : message.sourceTransport === "TELEGRAM"
+                      ? conversationAvatarUrl
+                      : undefined
+              }
               size="sm"
             />
             <div className={`${styles.bubble} ${mediaOnly ? styles.mediaOnlyBubble : ""}`}>

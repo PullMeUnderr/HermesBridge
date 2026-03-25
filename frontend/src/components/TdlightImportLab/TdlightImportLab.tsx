@@ -14,29 +14,42 @@ type TdlightReadiness = {
   hints: string[];
 };
 
-type TdlightDiagnostics = {
-  tdlightConnectionId: number;
+type TdlightResolvedChannel = {
+  originalReference: string;
   telegramChannelId: string;
   telegramChannelHandle: string | null;
   channelTitle: string;
-  rawFetchedPostCount: number;
-  mappedPostCount: number;
-  posts: Array<{
-    remoteMessageId: string;
-    authorDisplayName: string;
-    publishedAt: string;
-    rawMediaCount: number;
-    importedMediaCount: number;
-  }>;
+  normalizedReference: string;
+  referenceKind: string;
+  publicChannel: boolean;
+  eligibility: string;
+  eligibilityReason: string | null;
+  eligibleForMigration: boolean;
 };
 
-type TdlightMigration = {
+type TdlightAvailableChannel = {
+  telegramChannelId: string;
+  telegramChannelHandle: string | null;
+  channelTitle: string;
+  subscribed: boolean;
+  subscriptionId: number | null;
+  conversationId: number | null;
+};
+
+type TdlightSubscription = {
   id: number;
+  tdlightConnectionId: number;
+  conversationId: number;
+  telegramChannelId: string;
+  telegramChannelHandle: string | null;
+  channelTitle: string;
   status: string;
-  targetConversationId: number | null;
-  importedMessageCount: number;
-  importedMediaCount: number;
+  subscribedAt: string;
+  lastSyncedRemoteMessageId: string | null;
+  lastSyncedAt: string | null;
   lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 function getApiBase() {
@@ -54,8 +67,9 @@ export function TdlightImportLab() {
   const [connectionId, setConnectionId] = useState<number | null>(null);
   const [readiness, setReadiness] = useState<TdlightReadiness | null>(null);
   const [me, setMe] = useState<AuthUser | null>(null);
-  const [diagnostics, setDiagnostics] = useState<TdlightDiagnostics | null>(null);
-  const [migration, setMigration] = useState<TdlightMigration | null>(null);
+  const [resolvedChannel, setResolvedChannel] = useState<TdlightResolvedChannel | null>(null);
+  const [availableChannels, setAvailableChannels] = useState<TdlightAvailableChannel[]>([]);
+  const [subscriptions, setSubscriptions] = useState<TdlightSubscription[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
@@ -88,29 +102,42 @@ export function TdlightImportLab() {
     return connection.id;
   }
 
-  async function runImportFlow() {
+  async function loadSyncState(token: string, tdlightConnectionId: number) {
+    const [nextReadiness, nextMe, nextSubscriptions, nextChannels] = await Promise.all([
+      apiRequest<TdlightReadiness>(token, `${getApiBase()}/api/tdlight/readiness`),
+      apiRequest<AuthUser>(token, `${getApiBase()}/api/auth/me`),
+      apiRequest<TdlightSubscription[]>(token, `${getApiBase()}/api/tdlight/subscriptions`),
+      apiRequest<TdlightAvailableChannel[]>(token, `${getApiBase()}/api/tdlight/channels?tdlightConnectionId=${tdlightConnectionId}`),
+    ]);
+    setReadiness(nextReadiness);
+    setMe(nextMe);
+    setSubscriptions(nextSubscriptions);
+    setAvailableChannels(nextChannels);
+    return { nextSubscriptions };
+  }
+
+  async function refreshConversations(token: string, focusConversationId?: number | null) {
+    const nextConversations = await apiRequest<ConversationSummary[]>(token, `${getApiBase()}/api/conversations`);
+    setConversations(nextConversations);
+
+    const conversationId = focusConversationId ?? selectedConversationId;
+    if (conversationId) {
+      setSelectedConversationId(conversationId);
+      const nextMessages = await apiRequest<ConversationMessage[]>(
+        token,
+        `${getApiBase()}/api/conversations/${conversationId}/messages`,
+      );
+      setMessages(nextMessages);
+    }
+  }
+
+  async function runSubscribeFlow() {
     const token = accessToken || (await bootstrapSession());
     const tdlightConnectionId = connectionId ?? (await ensureConnection(token));
-
-    // Keep the lab idempotent: repeated runs should replace the imported sample,
-    // not fail on duplicate Telegram source message keys.
-    await apiRequest<void>(token, `${getApiBase()}/api/tdlight/cleanup`, {
-      method: "POST",
-    });
-    setConversations([]);
-    setMessages([]);
-    setSelectedConversationId(null);
-    setDiagnostics(null);
-    setMigration(null);
-
-    const nextReadiness = await apiRequest<TdlightReadiness>(token, `${getApiBase()}/api/tdlight/readiness`);
-    setReadiness(nextReadiness);
-    const nextMe = await apiRequest<AuthUser>(token, `${getApiBase()}/api/auth/me`);
-    setMe(nextMe);
-
-    const nextDiagnostics = await apiRequest<TdlightDiagnostics>(
+    setResolvedChannel(null);
+    const resolved = await apiRequest<TdlightResolvedChannel>(
       token,
-      `${getApiBase()}/api/tdlight/diagnostics/public-channel`,
+      `${getApiBase()}/api/tdlight/resolve/public-channel`,
       {
         method: "POST",
         body: JSON.stringify({
@@ -120,48 +147,46 @@ export function TdlightImportLab() {
         }),
       },
     );
-    setDiagnostics(nextDiagnostics);
+    setResolvedChannel(resolved);
 
-    const queued = await apiRequest<TdlightMigration>(token, `${getApiBase()}/api/tdlight/migrations`, {
+    const subscription = await apiRequest<TdlightSubscription>(token, `${getApiBase()}/api/tdlight/subscriptions`, {
       method: "POST",
       body: JSON.stringify({
         tdlightConnectionId,
-        telegramChannelId: nextDiagnostics.telegramChannelId,
-        telegramChannelHandle: nextDiagnostics.telegramChannelHandle,
-        importMedia: false,
+        telegramChannelId: resolved.telegramChannelId,
+        telegramChannelHandle: resolved.telegramChannelHandle,
+        channelTitle: resolved.channelTitle,
       }),
     });
 
-    const processed = await apiRequest<TdlightMigration>(
-      token,
-      `${getApiBase()}/api/tdlight/migrations/${queued.id}/process`,
-      { method: "POST" },
-    );
-    setMigration(processed);
-
-    const nextConversations = await apiRequest<ConversationSummary[]>(token, `${getApiBase()}/api/conversations`);
-    setConversations(nextConversations);
-
-    if (processed.targetConversationId) {
-      setSelectedConversationId(processed.targetConversationId);
-      const nextMessages = await apiRequest<ConversationMessage[]>(
-        token,
-        `${getApiBase()}/api/conversations/${processed.targetConversationId}/messages`,
-      );
-      setMessages(nextMessages);
-    }
-
-    const refreshedMe = await apiRequest<AuthUser>(token, `${getApiBase()}/api/auth/me`);
-    setMe(refreshedMe);
+    await loadSyncState(token, tdlightConnectionId);
+    await refreshConversations(token, subscription.conversationId);
   }
 
-  function handleRun() {
+  async function handleLoadChannels() {
+    const token = accessToken || (await bootstrapSession());
+    const tdlightConnectionId = connectionId ?? (await ensureConnection(token));
+    await loadSyncState(token, tdlightConnectionId);
+  }
+
+  function handleSubscribe() {
     startTransition(async () => {
       try {
         setError("");
-        await runImportFlow();
+        await runSubscribeFlow();
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Import flow failed");
+        setError(nextError instanceof Error ? nextError.message : "Subscribe flow failed");
+      }
+    });
+  }
+
+  function handleRefreshState() {
+    startTransition(async () => {
+      try {
+        setError("");
+        await handleLoadChannels();
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "State refresh failed");
       }
     });
   }
@@ -192,8 +217,8 @@ export function TdlightImportLab() {
           <div className={styles.eyebrow}>TDLight REAL Import Lab</div>
           <h1 className={styles.title}>Импорт каналов из Telegram в Hermes на живом REAL backend.</h1>
           <p className={styles.lede}>
-            Эта страница работает поверх отдельного backend на <strong>8082</strong>, поднимает локальную сессию,
-            смотрит diagnostics, запускает migration и сразу показывает, что реально появилось в Hermes.
+            Эта страница работает поверх отдельного backend на <strong>8082</strong>, поднимает локальную TDLight-сессию,
+            позволяет подписать выбранный канал на постоянную синхронизацию и показывает, что уже появилось в Hermes.
           </p>
         </section>
 
@@ -224,8 +249,11 @@ export function TdlightImportLab() {
                 />
               </div>
               <div className={styles.buttonRow}>
-                <button className={styles.primaryButton} disabled={isPending} onClick={handleRun}>
-                  {isPending ? "Запускаем..." : "Resolve + Diagnostics + Import"}
+                <button className={styles.primaryButton} disabled={isPending} onClick={handleSubscribe}>
+                  {isPending ? "Подключаем..." : "Resolve + Subscribe"}
+                </button>
+                <button className={styles.secondaryButton} disabled={isPending} onClick={handleRefreshState}>
+                  Обновить каналы
                 </button>
                 {selectedConversationId ? (
                   <button
@@ -241,6 +269,7 @@ export function TdlightImportLab() {
                 API base: {getApiBase()}
                 {"\n"}Access token: {accessToken ? "получен" : "нет"}
                 {"\n"}Connection id: {connectionId ?? "n/a"}
+                {"\n"}Mode: subscribe from current moment, no history backfill
               </div>
               {error ? <div className={`${styles.status} ${styles.statusError}`}>{error}</div> : null}
             </div>
@@ -256,23 +285,54 @@ export function TdlightImportLab() {
               <pre className={styles.code}>{formatJson(readiness)}</pre>
             </section>
             <section className={styles.panel}>
-              <h3 className={styles.panelTitle}>Diagnostics</h3>
-              <pre className={styles.code}>{formatJson(diagnostics)}</pre>
+              <h3 className={styles.panelTitle}>Resolved channel</h3>
+              <pre className={styles.code}>{formatJson(resolvedChannel)}</pre>
             </section>
             <section className={styles.panel}>
-              <h3 className={styles.panelTitle}>Migration</h3>
-              <pre className={styles.code}>{formatJson(migration)}</pre>
+              <h3 className={styles.panelTitle}>Subscriptions</h3>
+              <pre className={styles.code}>{formatJson(subscriptions)}</pre>
             </section>
           </div>
         </section>
 
         <section className={styles.grid}>
           <div className={styles.card}>
+            <h2 className={styles.cardTitle}>Available channels</h2>
+            <div className={styles.list}>
+              {availableChannels.length === 0 ? (
+                <div className={styles.item}>
+                  <p className={styles.itemMeta}>
+                    TDLight пока не вернул список joined public channels для этого аккаунта. В этом случае можно
+                    подключать канал по `@handle` через поле выше.
+                  </p>
+                </div>
+              ) : (
+                availableChannels.map((channel) => (
+                  <article key={channel.telegramChannelId} className={styles.item}>
+                    <p className={styles.itemTitle}>{channel.channelTitle}</p>
+                    <p className={styles.itemMeta}>
+                      {channel.telegramChannelHandle ? `@${channel.telegramChannelHandle}` : channel.telegramChannelId}
+                    </p>
+                    <p className={styles.itemBody}>
+                      {channel.subscribed
+                        ? `Уже подключен в Hermes, conversationId=${channel.conversationId ?? "n/a"}`
+                        : "Можно подключить без затягивания старой истории."}
+                    </p>
+                  </article>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className={styles.card}>
             <h2 className={styles.cardTitle}>Conversations</h2>
             <div className={styles.list}>
               {conversations.length === 0 ? (
                 <div className={styles.item}>
-                  <p className={styles.itemMeta}>Пока пусто. После успешного import здесь появится Hermes conversation.</p>
+                  <p className={styles.itemMeta}>
+                    Пока пусто. После подключения канала здесь появится Hermes conversation, а новые посты начнут
+                    прилетать по sync-loop.
+                  </p>
                 </div>
               ) : (
                 conversations.map((conversation) => (

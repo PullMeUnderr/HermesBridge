@@ -42,6 +42,11 @@ public class StubTdlightPublicChannelClient implements TdlightPublicChannelClien
     }
 
     @Override
+    public List<TdlightAvailableChannel> listAvailablePublicChannels(TdlightConnection connection) {
+        return List.of(new TdlightAvailableChannel("-1001005640892", "telegram", "Telegram News", null));
+    }
+
+    @Override
     public List<TdlightFetchedPost> fetchNewPosts(
         TdlightConnection connection,
         TdlightResolvedChannel channel,
@@ -70,7 +75,8 @@ public class StubTdlightPublicChannelClient implements TdlightPublicChannelClien
                                 0
                             )
                         )
-                        : List.of()
+                        : List.of(),
+                    List.of()
                 )
             );
         }
@@ -95,6 +101,14 @@ public class StubTdlightPublicChannelClient implements TdlightPublicChannelClien
             mediaReference.durationSeconds(),
             content
         );
+    }
+
+    @Override
+    public TdlightFetchedMedia fetchChannelAvatar(
+        TdlightConnection connection,
+        TdlightResolvedChannel channel
+    ) {
+        return null;
     }
 
     private int estimateStubMediaSize(TdlightResolvedChannel channel, int sequence) {

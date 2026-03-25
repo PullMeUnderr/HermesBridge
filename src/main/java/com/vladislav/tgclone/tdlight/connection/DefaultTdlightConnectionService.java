@@ -4,6 +4,7 @@ import com.vladislav.tgclone.account.UserAccount;
 import com.vladislav.tgclone.tdlight.TdlightProperties;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -35,8 +36,10 @@ public class DefaultTdlightConnectionService implements TdlightConnectionService
             return Optional.empty();
         }
 
-        return tdlightConnectionRepository
-            .findFirstByUserAccount_IdAndStatusOrderByCreatedAtDesc(userAccount.getId(), TdlightConnectionStatus.ACTIVE)
+        return tdlightConnectionRepository.findAllByUserAccount_IdOrderByCreatedAtDesc(userAccount.getId()).stream()
+            .filter(connection -> connection.getStatus() == TdlightConnectionStatus.ACTIVE)
+            .sorted(primaryConnectionComparator())
+            .findFirst()
             .map(this::toDescriptor);
     }
 
@@ -48,6 +51,7 @@ public class DefaultTdlightConnectionService implements TdlightConnectionService
         }
 
         return tdlightConnectionRepository.findAllByUserAccount_IdOrderByCreatedAtDesc(userAccount.getId()).stream()
+            .sorted(primaryConnectionComparator())
             .map(this::toDescriptor)
             .toList();
     }
@@ -57,7 +61,8 @@ public class DefaultTdlightConnectionService implements TdlightConnectionService
     public TdlightConnectionDescriptor createDevelopmentConnection(
         UserAccount userAccount,
         String phoneMask,
-        String tdlightUserId
+        String tdlightUserId,
+        boolean forceNew
     ) {
         if (!tdlightProperties.enabled()) {
             throw new IllegalStateException("TDLight is disabled");
@@ -67,8 +72,18 @@ public class DefaultTdlightConnectionService implements TdlightConnectionService
         }
 
         Optional<TdlightConnectionDescriptor> existing = findPrimaryConnection(userAccount);
-        if (existing.isPresent()) {
+        if (!forceNew && existing.isPresent()) {
             return existing.get();
+        }
+
+        if (forceNew) {
+            Instant revokedAt = clock.instant();
+            tdlightConnectionRepository.findAllByUserAccount_IdOrderByCreatedAtDesc(userAccount.getId()).stream()
+                .filter(existingConnection -> existingConnection.getStatus() == TdlightConnectionStatus.ACTIVE)
+                .forEach(existingConnection -> {
+                    existingConnection.clearAuthorizedProfile();
+                    existingConnection.markRevoked(revokedAt);
+                });
         }
 
         Instant now = clock.instant();
@@ -112,5 +127,19 @@ public class DefaultTdlightConnectionService implements TdlightConnectionService
             return null;
         }
         return value.trim();
+    }
+
+    private Comparator<TdlightConnection> primaryConnectionComparator() {
+        return Comparator
+            .comparing((TdlightConnection connection) -> connection.getStatus() == TdlightConnectionStatus.ACTIVE ? 0 : 1)
+            .thenComparing(
+                TdlightConnection::getVerifiedAt,
+                Comparator.nullsLast(Comparator.reverseOrder())
+            )
+            .thenComparing(
+                TdlightConnection::getTdlightUserId,
+                Comparator.nullsLast(String::compareToIgnoreCase)
+            )
+            .thenComparing(TdlightConnection::getCreatedAt, Comparator.reverseOrder());
     }
 }

@@ -55,6 +55,8 @@ Start here:
 - [Architecture guide](./docs/ARCHITECTURE.md)
 - [FAQ and troubleshooting](./docs/FAQ.md)
 - [Deployment scripts overview](./deployment/README.md)
+- [Frontend handoff guide](./docs/FRONTEND_HANDOFF.md)
+- [What changed since old version](./docs/WHAT_CHANGED_SINCE_OLD_VERSION.md)
 
 ## Quick Start
 
@@ -64,7 +66,7 @@ Start here:
 - PostgreSQL for persistent environments
 - Telegram bot token from `@BotFather`
 
-For local development only, the app can run with in-memory H2 by default.
+For local development only, the app can run with a file-based H2 database by default.
 
 ### 2. Configure environment
 

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchProtectedBlobUrl } from "@/lib/api";
+import { fetchProtectedBlob } from "@/lib/api";
+import { inferAttachmentMimeType } from "@/lib/format";
 
 function isProtectedMediaUrl(url: string | null | undefined) {
   if (!url) {
@@ -19,7 +20,16 @@ function isProtectedMediaUrl(url: string | null | undefined) {
   }
 }
 
-export function useProtectedObjectUrl(token: string, src: string | null | undefined, enabled = true) {
+export function useProtectedObjectUrl(
+  token: string,
+  src: string | null | undefined,
+  enabled = true,
+  mediaHint?: {
+    fileName?: string | null;
+    mimeType?: string | null;
+    kind?: string | null;
+  },
+) {
   const [resolvedSrc, setResolvedSrc] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,7 +57,24 @@ export function useProtectedObjectUrl(token: string, src: string | null | undefi
       }
 
       try {
-        objectUrl = await fetchProtectedBlobUrl(token, src);
+        const blob = await fetchProtectedBlob(token, src);
+        if (!blob) {
+          if (active) {
+            setResolvedSrc(null);
+          }
+          return;
+        }
+
+        const normalizedMimeType = inferAttachmentMimeType(
+          String(mediaHint?.kind ?? ""),
+          mediaHint?.fileName,
+          mediaHint?.mimeType ?? blob.type,
+        );
+        const normalizedBlob =
+          normalizedMimeType && normalizedMimeType !== blob.type
+            ? new Blob([blob], { type: normalizedMimeType })
+            : blob;
+        objectUrl = URL.createObjectURL(normalizedBlob);
         if (active) {
           setResolvedSrc(objectUrl);
         }
@@ -66,7 +93,7 @@ export function useProtectedObjectUrl(token: string, src: string | null | undefi
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [enabled, src, token]);
+  }, [enabled, mediaHint?.fileName, mediaHint?.kind, mediaHint?.mimeType, src, token]);
 
   return resolvedSrc;
 }

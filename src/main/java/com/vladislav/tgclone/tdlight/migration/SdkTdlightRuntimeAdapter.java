@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,6 +30,7 @@ public class SdkTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
     private static final int CLIENT_TIMEOUT_SECONDS = 20;
     private static final int DOWNLOAD_PRIORITY = 32;
     private static final int HISTORY_PAGE_SIZE = 100;
+    private static final int CHAT_LIST_FETCH_LIMIT = 1000;
 
     private final TdlightNativeLibraryBootstrap tdlightNativeLibraryBootstrap;
     private final TdlightSessionFactory tdlightSessionFactory;
@@ -163,6 +165,47 @@ public class SdkTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
     }
 
     @Override
+    public List<TdlightPublicChannelClient.TdlightAvailableChannel> listAvailablePublicChannels(
+        TdlightRuntimeSessionContext sessionContext
+    ) {
+        SimpleTelegramClient client = requireClient(sessionContext);
+        TdApi.Chats chats;
+        try {
+            await(client.send(new TdApi.LoadChats(new TdApi.ChatListMain(), CHAT_LIST_FETCH_LIMIT)));
+            chats = await(client.send(new TdApi.GetChats(new TdApi.ChatListMain(), CHAT_LIST_FETCH_LIMIT)));
+        } catch (RuntimeException exception) {
+            return List.of();
+        }
+        if (chats == null || chats.chatIds == null || chats.chatIds.length == 0) {
+            return List.of();
+        }
+
+        List<TdlightPublicChannelClient.TdlightAvailableChannel> channels = new ArrayList<>();
+        for (long chatId : chats.chatIds) {
+            try {
+                TdApi.Chat chat = await(client.send(new TdApi.GetChat(chatId)));
+                if (chat == null || !(chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) || !supergroupType.isChannel) {
+                    continue;
+                }
+                TdApi.Supergroup supergroup = await(client.send(new TdApi.GetSupergroup(supergroupType.supergroupId)));
+                String handle = firstActiveUsername(supergroup.usernames);
+                channels.add(new TdlightPublicChannelClient.TdlightAvailableChannel(
+                    String.valueOf(chat.id),
+                    handle,
+                    trimToNull(chat.title),
+                    buildChannelAvatarDataUrl(client, chat)
+                ));
+            } catch (RuntimeException exception) {
+                // Some chats from the main list can disappear or become inaccessible
+                // between LoadChats/GetChats and the follow-up metadata fetches.
+                // Skip those entries instead of failing the whole listing request.
+                continue;
+            }
+        }
+        return channels;
+    }
+
+    @Override
     public List<TdlightPublicChannelClient.TdlightFetchedPost> fetchNewPosts(
         TdlightRuntimeSessionContext sessionContext,
         TdlightPublicChannelClient.TdlightResolvedChannel channel,
@@ -178,6 +221,8 @@ public class SdkTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
         Long lastSeenMessageId = parseNullableLong(cursor.lastSeenRemoteMessageId());
         long activatedAtEpochSecond = cursor.activatedAt() == null ? Long.MIN_VALUE : cursor.activatedAt().getEpochSecond();
         Map<Long, TdApi.Message> uniqueMessages = new LinkedHashMap<>();
+        List<TdApi.Message> historicalContextMessages = new ArrayList<>();
+        int remainingHistoricalContext = lastSeenMessageId == null ? Math.max(0, cursor.initialHistoricalPostCount()) : 0;
         long fromMessageId = 0L;
 
         while (uniqueMessages.size() < limit) {
@@ -196,11 +241,25 @@ public class SdkTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
                 if (!shouldInclude(message, lastSeenMessageId, activatedAtEpochSecond, cursor.backfillHistoryEnabled())) {
                     if ((lastSeenMessageId != null && message.id <= lastSeenMessageId)
                         || (!cursor.backfillHistoryEnabled() && message.date < activatedAtEpochSecond)) {
-                        reachedOlderBoundary = true;
+                        if (lastSeenMessageId == null
+                            && !cursor.backfillHistoryEnabled()
+                            && remainingHistoricalContext > 0
+                            && message.content != null) {
+                            historicalContextMessages.add(message);
+                            remainingHistoricalContext -= 1;
+                        } else {
+                            reachedOlderBoundary = true;
+                        }
                     }
                     continue;
                 }
                 uniqueMessages.putIfAbsent(message.id, message);
+            }
+
+            if (lastSeenMessageId == null
+                && !cursor.backfillHistoryEnabled()
+                && remainingHistoricalContext == 0) {
+                reachedOlderBoundary = true;
             }
 
             if (page.messages.length < Math.min(HISTORY_PAGE_SIZE, limit)
@@ -212,10 +271,16 @@ public class SdkTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
             fromMessageId = oldestMessageIdInPage;
         }
 
+        if (!historicalContextMessages.isEmpty()) {
+            historicalContextMessages.stream()
+                .sorted(Comparator.comparingLong(message -> message.id))
+                .forEach(message -> uniqueMessages.putIfAbsent(message.id, message));
+        }
+
         return uniqueMessages.values().stream()
             .sorted(Comparator.comparingLong(message -> message.id))
             .limit(limit)
-            .map(message -> toFetchedPost(client, chatId, message))
+            .map(message -> toFetchedPost(client, chatId, message, cursor.includeMedia()))
             .toList();
     }
 
@@ -229,6 +294,31 @@ public class SdkTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
         SimpleTelegramClient client = requireClient(sessionContext);
         TdApi.File file = await(client.send(new TdApi.GetFile(Integer.parseInt(mediaReference.remoteMediaId()))));
         return toFetchedMedia(client, file, mediaReference.fileName(), mediaReference.mimeType(), mediaReference.durationSeconds());
+    }
+
+    @Override
+    public TdlightPublicChannelClient.TdlightFetchedMedia fetchChannelAvatar(
+        TdlightRuntimeSessionContext sessionContext,
+        TdlightPublicChannelClient.TdlightResolvedChannel channel
+    ) {
+        SimpleTelegramClient client = requireClient(sessionContext);
+        TdApi.Chat chat = await(client.send(new TdApi.GetChat(parseChatId(channel.sourceChannelId()))));
+        if (chat == null || chat.photo == null) {
+            return null;
+        }
+
+        TdApi.File avatarFile = chat.photo.small != null ? chat.photo.small : chat.photo.big;
+        if (avatarFile == null) {
+            return null;
+        }
+
+        return toFetchedMedia(
+            client,
+            avatarFile,
+            "channel-%s.jpg".formatted(chat.id),
+            "image/jpeg",
+            0
+        );
     }
 
     @Override
@@ -253,12 +343,16 @@ public class SdkTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
     private TdlightPublicChannelClient.TdlightFetchedPost toFetchedPost(
         SimpleTelegramClient client,
         long fallbackChatId,
-        TdApi.Message message
+        TdApi.Message message,
+        boolean includeMedia
     ) {
         String body = extractBody(message.content);
         String authorDisplayName = resolveAuthorDisplayName(client, fallbackChatId, message);
         String authorExternalId = resolveAuthorExternalId(message.senderId);
         List<TdlightPublicChannelClient.TdlightFetchedMediaReference> mediaReferences = extractMediaReferences(message.content);
+        List<TdlightPublicChannelClient.TdlightFetchedMedia> media = includeMedia
+            ? extractFetchedMedia(client, message.content)
+            : List.of();
 
         return new TdlightPublicChannelClient.TdlightFetchedPost(
             String.valueOf(message.id),
@@ -266,8 +360,87 @@ public class SdkTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
             authorDisplayName,
             body,
             Instant.ofEpochSecond(message.date),
-            mediaReferences
+            mediaReferences,
+            media
         );
+    }
+
+    private List<TdlightPublicChannelClient.TdlightFetchedMedia> extractFetchedMedia(
+        SimpleTelegramClient client,
+        TdApi.MessageContent content
+    ) {
+        List<TdlightPublicChannelClient.TdlightFetchedMedia> media = new ArrayList<>();
+        if (content instanceof TdApi.MessagePhoto photo && photo.photo != null && photo.photo.sizes != null) {
+            TdApi.PhotoSize largestPhoto = selectLargestPhoto(photo.photo.sizes);
+            if (largestPhoto != null && largestPhoto.photo != null) {
+                media.add(
+                    toFetchedMedia(
+                        client,
+                        largestPhoto.photo,
+                        "photo-%s.jpg".formatted(largestPhoto.photo.id),
+                        "image/jpeg",
+                        0
+                    )
+                );
+            }
+        } else if (content instanceof TdApi.MessageVideo video && video.video != null && video.video.video != null) {
+            media.add(
+                toFetchedMedia(
+                    client,
+                    video.video.video,
+                    normalizeFileName(video.video.fileName, "video-%s.mp4".formatted(video.video.video.id)),
+                    normalizeMimeType(video.video.mimeType, "video/mp4"),
+                    video.video.duration
+                )
+            );
+        } else if (content instanceof TdApi.MessageDocument document
+            && document.document != null
+            && document.document.document != null) {
+            media.add(
+                toFetchedMedia(
+                    client,
+                    document.document.document,
+                    normalizeFileName(document.document.fileName, "document-%s".formatted(document.document.document.id)),
+                    normalizeMimeType(document.document.mimeType, "application/octet-stream"),
+                    0
+                )
+            );
+        } else if (content instanceof TdApi.MessageAudio audio && audio.audio != null && audio.audio.audio != null) {
+            media.add(
+                toFetchedMedia(
+                    client,
+                    audio.audio.audio,
+                    normalizeFileName(audio.audio.fileName, "audio-%s".formatted(audio.audio.audio.id)),
+                    normalizeMimeType(audio.audio.mimeType, "audio/mpeg"),
+                    audio.audio.duration
+                )
+            );
+        } else if (content instanceof TdApi.MessageVoiceNote voiceNote
+            && voiceNote.voiceNote != null
+            && voiceNote.voiceNote.voice != null) {
+            media.add(
+                toFetchedMedia(
+                    client,
+                    voiceNote.voiceNote.voice,
+                    "voice-%s.ogg".formatted(voiceNote.voiceNote.voice.id),
+                    normalizeMimeType(voiceNote.voiceNote.mimeType, "audio/ogg"),
+                    voiceNote.voiceNote.duration
+                )
+            );
+        } else if (content instanceof TdApi.MessageVideoNote videoNote
+            && videoNote.videoNote != null
+            && videoNote.videoNote.video != null) {
+            media.add(
+                toFetchedMedia(
+                    client,
+                    videoNote.videoNote.video,
+                    "video-note-%s.mp4".formatted(videoNote.videoNote.video.id),
+                    "video/mp4",
+                    videoNote.videoNote.duration
+                )
+            );
+        }
+        return media;
     }
 
     private List<TdlightPublicChannelClient.TdlightFetchedMediaReference> extractMediaReferences(TdApi.MessageContent content) {
@@ -300,6 +473,34 @@ public class SdkTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
                 normalizeMimeType(document.document.mimeType, "application/octet-stream"),
                 document.document.document.size,
                 0
+            ));
+        } else if (content instanceof TdApi.MessageAudio audio && audio.audio != null && audio.audio.audio != null) {
+            mediaReferences.add(new TdlightPublicChannelClient.TdlightFetchedMediaReference(
+                String.valueOf(audio.audio.audio.id),
+                normalizeFileName(audio.audio.fileName, "audio-%s".formatted(audio.audio.audio.id)),
+                normalizeMimeType(audio.audio.mimeType, "audio/mpeg"),
+                audio.audio.audio.size,
+                audio.audio.duration
+            ));
+        } else if (content instanceof TdApi.MessageVoiceNote voiceNote
+            && voiceNote.voiceNote != null
+            && voiceNote.voiceNote.voice != null) {
+            mediaReferences.add(new TdlightPublicChannelClient.TdlightFetchedMediaReference(
+                String.valueOf(voiceNote.voiceNote.voice.id),
+                "voice-%s.ogg".formatted(voiceNote.voiceNote.voice.id),
+                normalizeMimeType(voiceNote.voiceNote.mimeType, "audio/ogg"),
+                voiceNote.voiceNote.voice.size,
+                voiceNote.voiceNote.duration
+            ));
+        } else if (content instanceof TdApi.MessageVideoNote videoNote
+            && videoNote.videoNote != null
+            && videoNote.videoNote.video != null) {
+            mediaReferences.add(new TdlightPublicChannelClient.TdlightFetchedMediaReference(
+                String.valueOf(videoNote.videoNote.video.id),
+                "video-note-%s.mp4".formatted(videoNote.videoNote.video.id),
+                "video/mp4",
+                videoNote.videoNote.video.size,
+                videoNote.videoNote.duration
             ));
         }
         return mediaReferences;
@@ -336,20 +537,141 @@ public class SdkTdlightRuntimeAdapter implements TdlightRuntimeAdapter {
         }
     }
 
+    private String buildChannelAvatarDataUrl(SimpleTelegramClient client, TdApi.Chat chat) {
+        if (chat == null || chat.photo == null) {
+            return null;
+        }
+
+        TdApi.File avatarFile = chat.photo.small != null ? chat.photo.small : chat.photo.big;
+        if (avatarFile == null) {
+            return null;
+        }
+
+        try {
+            TdlightPublicChannelClient.TdlightFetchedMedia media = toFetchedMedia(
+                client,
+                avatarFile,
+                "channel-%s.jpg".formatted(chat.id),
+                "image/jpeg",
+                0
+            );
+            if (media.content() == null || media.content().length == 0) {
+                return null;
+            }
+            return "data:%s;base64,%s".formatted(
+                isBlank(media.mimeType()) ? "image/jpeg" : media.mimeType(),
+                Base64.getEncoder().encodeToString(media.content())
+            );
+        } catch (RuntimeException exception) {
+            return null;
+        }
+    }
+
     private String extractBody(TdApi.MessageContent content) {
         if (content instanceof TdApi.MessageText text && text.text != null) {
-            return trimToNull(text.text.text);
+            return renderFormattedText(text.text);
         }
         if (content instanceof TdApi.MessagePhoto photo && photo.caption != null) {
-            return trimToNull(photo.caption.text);
+            return renderFormattedText(photo.caption);
         }
         if (content instanceof TdApi.MessageVideo video && video.caption != null) {
-            return trimToNull(video.caption.text);
+            return renderFormattedText(video.caption);
         }
         if (content instanceof TdApi.MessageDocument document && document.caption != null) {
-            return trimToNull(document.caption.text);
+            return renderFormattedText(document.caption);
+        }
+        TdApi.FormattedText reflectedCaption = extractFormattedTextField(content, "caption");
+        if (reflectedCaption != null) {
+            return renderFormattedText(reflectedCaption);
+        }
+        TdApi.FormattedText reflectedText = extractFormattedTextField(content, "text");
+        if (reflectedText != null) {
+            return renderFormattedText(reflectedText);
         }
         return null;
+    }
+
+    private TdApi.FormattedText extractFormattedTextField(TdApi.MessageContent content, String fieldName) {
+        if (content == null || isBlank(fieldName)) {
+            return null;
+        }
+
+        try {
+            java.lang.reflect.Field field = content.getClass().getField(fieldName);
+            Object value = field.get(content);
+            return value instanceof TdApi.FormattedText formattedText ? formattedText : null;
+        } catch (ReflectiveOperationException ignored) {
+            return null;
+        }
+    }
+
+    private String renderFormattedText(TdApi.FormattedText formattedText) {
+        if (formattedText == null || isBlank(formattedText.text)) {
+            return null;
+        }
+
+        String text = formattedText.text;
+        if (formattedText.entities == null || formattedText.entities.length == 0) {
+            return trimToNull(text);
+        }
+
+        StringBuilder result = new StringBuilder();
+        int cursor = 0;
+
+        for (TdApi.TextEntity entity : formattedText.entities) {
+            if (entity == null || entity.type == null) {
+                continue;
+            }
+
+            int start = Math.max(0, Math.min(text.length(), entity.offset));
+            int end = Math.max(start, Math.min(text.length(), entity.offset + entity.length));
+            if (start < cursor) {
+                continue;
+            }
+
+            if (cursor < start) {
+                result.append(text, cursor, start);
+            }
+
+            String segment = text.substring(start, end);
+            result.append(renderEntitySegment(segment, entity.type));
+            cursor = end;
+        }
+
+        if (cursor < text.length()) {
+            result.append(text.substring(cursor));
+        }
+
+        return trimToNull(result.toString());
+    }
+
+    private String renderEntitySegment(String segment, TdApi.TextEntityType type) {
+        if (segment == null) {
+            return "";
+        }
+
+        if (type instanceof TdApi.TextEntityTypeTextUrl textUrl) {
+            String url = trimToNull(textUrl.url);
+            String label = trimToNull(segment);
+            if (url == null) {
+                return segment;
+            }
+            if (label == null || label.equals(url)) {
+                return url;
+            }
+            return "%s (%s)".formatted(label, url);
+        }
+
+        if (type instanceof TdApi.TextEntityTypeUrl) {
+            return segment;
+        }
+
+        if (type instanceof TdApi.TextEntityTypeEmailAddress) {
+            String email = trimToNull(segment);
+            return email == null ? segment : "mailto:" + email;
+        }
+
+        return segment;
     }
 
     private String resolveAuthorDisplayName(SimpleTelegramClient client, long fallbackChatId, TdApi.Message message) {

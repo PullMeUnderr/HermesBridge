@@ -18,6 +18,7 @@ public interface TdlightPublicChannelGateway {
         String lastSeenRemoteMessageId,
         boolean backfillHistoryEnabled,
         int messageLimit,
+        int initialHistoricalPostCount,
         boolean includeMedia
     ) {
     }

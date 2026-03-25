@@ -18,6 +18,10 @@ public interface TdlightRuntimeAdapter {
         TdlightPublicChannelClient.TdlightChannelReference reference
     );
 
+    List<TdlightPublicChannelClient.TdlightAvailableChannel> listAvailablePublicChannels(
+        TdlightRuntimeSessionContext sessionContext
+    );
+
     List<TdlightPublicChannelClient.TdlightFetchedPost> fetchNewPosts(
         TdlightRuntimeSessionContext sessionContext,
         TdlightPublicChannelClient.TdlightResolvedChannel channel,
@@ -30,6 +34,11 @@ public interface TdlightRuntimeAdapter {
         TdlightPublicChannelClient.TdlightResolvedChannel channel,
         TdlightPublicChannelClient.TdlightFetchedPost post,
         TdlightPublicChannelClient.TdlightFetchedMediaReference mediaReference
+    );
+
+    TdlightPublicChannelClient.TdlightFetchedMedia fetchChannelAvatar(
+        TdlightRuntimeSessionContext sessionContext,
+        TdlightPublicChannelClient.TdlightResolvedChannel channel
     );
 
     TdlightAuthorizedUser getCurrentUser(TdlightRuntimeSessionContext sessionContext);

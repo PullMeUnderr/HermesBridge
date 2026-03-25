@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
@@ -36,6 +38,8 @@ import com.vladislav.tgclone.security.AuthenticatedUser;
 @RestController
 @RequestMapping("/api/conversations")
 public class ConversationController {
+
+    private static final Logger log = LoggerFactory.getLogger(ConversationController.class);
 
     private final ConversationService conversationService;
     private final MessageRelayService messageRelayService;
@@ -135,14 +139,8 @@ public class ConversationController {
         }
 
         return ResponseEntity.ok()
-            .cacheControl(CacheControl.noStore().mustRevalidate())
+            .cacheControl(CacheControl.maxAge(java.time.Duration.ofDays(30)).cachePrivate())
             .contentType(resolveMediaType(conversation.getAvatarMimeType()))
-            .header(
-                HttpHeaders.CONTENT_DISPOSITION,
-                ContentDisposition.inline().filename(conversation.getAvatarOriginalFilename()).build().toString()
-            )
-            .header(HttpHeaders.PRAGMA, "no-cache")
-            .header(HttpHeaders.EXPIRES, "0")
             .body(body);
     }
 
@@ -226,13 +224,35 @@ public class ConversationController {
 
         return members.stream()
             .map(member -> {
-                TelegramIdentity telegramIdentity = identitiesByUserId.get(member.getUserAccount().getId());
-                return ConversationMemberResponse.from(
-                    member,
-                    telegramIdentity,
-                    conversationService.isOnline(telegramIdentity),
-                    userAccountService
-                );
+                try {
+                    TelegramIdentity telegramIdentity = identitiesByUserId.get(member.getUserAccount().getId());
+                    return ConversationMemberResponse.from(
+                        member,
+                        telegramIdentity,
+                        conversationService.isOnline(telegramIdentity),
+                        userAccountService
+                    );
+                } catch (Exception exception) {
+                    log.warn(
+                        "Failed to build conversation member response conversationId={} memberId={} reason={}",
+                        conversationId,
+                        member == null || member.getUserAccount() == null ? null : member.getUserAccount().getId(),
+                        exception.getMessage()
+                    );
+                    return new ConversationMemberResponse(
+                        member != null && member.getUserAccount() != null ? member.getUserAccount().getId() : null,
+                        member != null && member.getUserAccount() != null ? member.getUserAccount().getUsername() : null,
+                        member != null && member.getUserAccount() != null ? member.getUserAccount().getDisplayName() : "Unknown",
+                        null,
+                        member != null && member.getRole() != null ? member.getRole().name() : "MEMBER",
+                        member == null ? null : member.getJoinedAt(),
+                        member == null ? null : member.getLastReadMessageCreatedAt(),
+                        false,
+                        null,
+                        false,
+                        null
+                    );
+                }
             })
             .toList();
     }

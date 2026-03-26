@@ -5,6 +5,7 @@ import styles from "./AppShell.module.scss";
 import { Sidebar } from "@/components/Sidebar/Sidebar";
 import { DrawerPanel } from "@/components/DrawerPanel/DrawerPanel";
 import { ConversationView } from "@/components/ConversationView/ConversationView";
+import type { UploadProgressState } from "@/lib/api";
 import type {
   AuthUser,
   ConversationMember,
@@ -60,6 +61,7 @@ interface AppShellProps {
     attachments: PendingAttachment[];
     replyToMessageId: number | null;
     sendAsVideoNote: boolean;
+    onUploadProgress?: (state: UploadProgressState) => void;
   }) => Promise<void>;
   onReply: (messageId: number) => ConversationMessage | null;
   onTypingStateChange: (conversationId: number, active: boolean) => void;

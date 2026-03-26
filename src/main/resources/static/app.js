@@ -1960,19 +1960,82 @@ function renderRichMessageText(body) {
     .join("<br>");
 }
 
+const markdownLinkPattern = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+
+function trimTrailingLinkPunctuation(url) {
+  let trimmed = String(url ?? "");
+
+  while (/[),.!?:;]+$/.test(trimmed)) {
+    trimmed = trimmed.slice(0, -1);
+  }
+
+  return trimmed;
+}
+
+function normalizeLinkHref(rawUrl) {
+  const trimmed = trimTrailingLinkPunctuation(String(rawUrl ?? "").trim());
+  const lower = trimmed.toLowerCase();
+
+  if (
+    lower.startsWith("http://") ||
+    lower.startsWith("https://") ||
+    lower.startsWith("ftp://") ||
+    lower.startsWith("file://") ||
+    lower.startsWith("tg://") ||
+    lower.startsWith("mailto:") ||
+    lower.startsWith("tel:") ||
+    lower.startsWith("sms:")
+  ) {
+    return trimmed;
+  }
+
+  return `https://${trimmed}`;
+}
+
 function linkifyMessageLine(line) {
   const text = String(line ?? "");
-  const urlPattern = /(https?:\/\/[^\s<]+|file:\/\/[^\s<]+|tg:\/\/[^\s<]+|mailto:[^\s<]+)/gi;
+  const urlPattern =
+    /(https?:\/\/[^\s<]+|ftp:\/\/[^\s<]+|file:\/\/[^\s<]+|tg:\/\/[^\s<]+|mailto:[^\s<]+|tel:[+\d()[\]\-\s]+|sms:[+\d()[\]\-\s]+|(?:www\.|(?:t\.me|telegram\.me)\/)[^\s<]+)/gi;
   let cursor = 0;
   let html = "";
 
-  for (const match of text.matchAll(urlPattern)) {
+  for (const markdownMatch of text.matchAll(markdownLinkPattern)) {
+    const markdownStart = markdownMatch.index ?? 0;
+    const markdownEnd = markdownStart + markdownMatch[0].length;
+    const markdownLabel = markdownMatch[1] ?? "";
+    const markdownUrl = markdownMatch[2] ?? "";
+
+    for (const urlMatch of text.slice(cursor, markdownStart).matchAll(urlPattern)) {
+      const matchedUrl = urlMatch[0];
+      const label = trimTrailingLinkPunctuation(matchedUrl);
+      const suffix = matchedUrl.slice(label.length);
+      const startIndex = cursor + (urlMatch.index ?? 0);
+      const endIndex = startIndex + matchedUrl.length;
+
+      html += renderMentionText(text.slice(cursor, startIndex));
+      html += renderMessageLink(normalizeLinkHref(matchedUrl), label);
+      html += escapeHtml(suffix);
+      cursor = endIndex;
+    }
+
+    if (markdownStart > cursor) {
+      html += renderMentionText(text.slice(cursor, markdownStart));
+    }
+
+    html += renderMessageLink(normalizeLinkHref(markdownUrl), markdownLabel);
+    cursor = markdownEnd;
+  }
+
+  for (const match of text.slice(cursor).matchAll(urlPattern)) {
     const matchedUrl = match[0];
-    const startIndex = match.index ?? 0;
+    const label = trimTrailingLinkPunctuation(matchedUrl);
+    const suffix = matchedUrl.slice(label.length);
+    const startIndex = cursor + (match.index ?? 0);
     const endIndex = startIndex + matchedUrl.length;
 
     html += renderMentionText(text.slice(cursor, startIndex));
-    html += renderMessageLink(matchedUrl);
+    html += renderMessageLink(normalizeLinkHref(matchedUrl), label);
+    html += escapeHtml(suffix);
     cursor = endIndex;
   }
 
@@ -2009,10 +2072,10 @@ function renderMentionText(text) {
   return html;
 }
 
-function renderMessageLink(rawUrl) {
+function renderMessageLink(rawUrl, rawLabel = rawUrl) {
   const href = rawUrl.trim();
   const isExternal = !href.toLowerCase().startsWith("file://");
-  const label = formatMessageLinkLabel(href);
+  const label = formatMessageLinkLabel(rawLabel.trim());
   const targetAttributes = isExternal ? ' target="_blank" rel="noopener noreferrer"' : "";
 
   return `<a class="message-link" href="${escapeHtml(href)}"${targetAttributes}>${escapeHtml(label)}</a>`;

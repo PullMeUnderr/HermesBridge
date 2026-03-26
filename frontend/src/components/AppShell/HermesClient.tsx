@@ -7,6 +7,8 @@ import { AppShell } from "@/components/AppShell/AppShell";
 import { ToastViewport } from "@/components/ToastViewport/ToastViewport";
 import { PhotoViewerModal } from "@/components/PhotoViewerModal/PhotoViewerModal";
 import {
+  type ApiRequestOptions,
+  type UploadProgressState,
   apiRequest,
   completeHermesRegistration,
   exchangeBootstrapToken,
@@ -251,7 +253,7 @@ export function HermesClient() {
   }, []);
 
   const request = useCallback(
-    async <T,>(path: string, options: RequestInit = {}) => {
+    async <T,>(path: string, options: ApiRequestOptions = {}) => {
       const runRequest = async (currentToken: string) => apiRequest<T>(currentToken, path, options);
 
       try {
@@ -1104,11 +1106,13 @@ export function HermesClient() {
       attachments,
       replyToMessageId,
       sendAsVideoNote,
+      onUploadProgress,
     }: {
       body: string;
       attachments: PendingAttachment[];
       replyToMessageId: number | null;
       sendAsVideoNote: boolean;
+      onUploadProgress?: (state: UploadProgressState) => void;
     }) => {
       if (!selectedConversationId) {
         return;
@@ -1132,6 +1136,7 @@ export function HermesClient() {
         const createdMessage = await request<ConversationMessage>(`/api/conversations/${selectedConversationId}/messages/upload`, {
           method: "POST",
           body: formData,
+          onUploadProgress,
         });
         invalidatePendingConversationLoad();
         upsertConversationMessage(createdMessage);

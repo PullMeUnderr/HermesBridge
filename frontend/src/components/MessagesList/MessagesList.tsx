@@ -1,7 +1,6 @@
 "use client";
 
-import { Fragment, useEffect } from "react";
-import type { ReactNode } from "react";
+import { useEffect } from "react";
 import { useRef, useState } from "react";
 import styles from "./MessagesList.module.scss";
 import { useLazyVisible } from "@/hooks/useLazyVisible";
@@ -17,6 +16,7 @@ import {
   isVideoAttachment,
   isVideoNoteAttachment,
 } from "@/lib/format";
+import { renderRichText } from "@/lib/richText";
 import type {
   AuthUser,
   ConversationAttachment,
@@ -304,96 +304,6 @@ function AttachmentCard({
   );
 }
 
-function formatLinkLabel(url: string) {
-  try {
-    return decodeURI(url);
-  } catch {
-    return url;
-  }
-}
-
-function renderMentionText(text: string, ownUsername: string | null) {
-  const mentionPattern = /(^|[^A-Za-z0-9_])@([A-Za-z0-9_]{1,100})/g;
-  const parts: ReactNode[] = [];
-  let cursor = 0;
-  let index = 0;
-
-  for (const match of text.matchAll(mentionPattern)) {
-    const prefix = match[1] ?? "";
-    const username = match[2] ?? "";
-    const startIndex = match.index ?? 0;
-    const mentionStart = startIndex + prefix.length;
-    const mentionEnd = mentionStart + username.length + 1;
-    const isSelf = ownUsername && username.toLowerCase() === ownUsername.toLowerCase();
-
-    if (startIndex > cursor) {
-      parts.push(text.slice(cursor, startIndex));
-    }
-
-    parts.push(prefix);
-    parts.push(
-      <span key={`mention-${index++}`} className={`${styles.mention} ${isSelf ? styles.mentionSelf : ""}`}>
-        @{username}
-      </span>,
-    );
-    cursor = mentionEnd;
-  }
-
-  if (cursor < text.length) {
-    parts.push(text.slice(cursor));
-  }
-
-  return parts;
-}
-
-function renderRichMessageText(body: string, ownUsername: string | null) {
-  const urlPattern = /(https?:\/\/[^\s<]+|file:\/\/[^\s<]+|tg:\/\/[^\s<]+|mailto:[^\s<]+)/gi;
-  const lines = String(body).split("\n");
-
-  return lines
-    .map((line, lineIndex) => {
-      const parts: ReactNode[] = [];
-      let cursor = 0;
-      let index = 0;
-
-      for (const match of line.matchAll(urlPattern)) {
-        const matchedUrl = match[0];
-        const startIndex = match.index ?? 0;
-        const endIndex = startIndex + matchedUrl.length;
-
-        if (startIndex > cursor) {
-          parts.push(...renderMentionText(line.slice(cursor, startIndex), ownUsername));
-        }
-
-        const href = matchedUrl.trim();
-        const external = !href.toLowerCase().startsWith("file://");
-        parts.push(
-          <a
-            key={`link-${lineIndex}-${index++}`}
-            className={styles.link}
-            href={href}
-            target={external ? "_blank" : undefined}
-            rel={external ? "noopener noreferrer" : undefined}
-          >
-            {formatLinkLabel(href)}
-          </a>,
-        );
-        cursor = endIndex;
-      }
-
-      if (cursor < line.length) {
-        parts.push(...renderMentionText(line.slice(cursor), ownUsername));
-      }
-
-      return (
-        <Fragment key={`line-${lineIndex}`}>
-          {parts.length > 0 ? parts : line}
-          {lineIndex < lines.length - 1 && <br />}
-        </Fragment>
-      );
-    });
-}
-
 export function MessagesList({
   token,
   me,
@@ -513,11 +423,27 @@ export function MessagesList({
               {message.replyTo && (
                 <div className={styles.reply}>
                   <strong>{message.replyTo.authorDisplayName}</strong>
-                  <span>{message.replyTo.body || "Ответ с вложением"}</span>
+                  <span>
+                    {message.replyTo.body
+                      ? renderRichText(message.replyTo.body, me.username, {
+                          link: styles.link,
+                          mention: styles.mention,
+                          mentionSelf: styles.mentionSelf,
+                        })
+                      : "Ответ с вложением"}
+                  </span>
                 </div>
               )}
 
-              {message.body && <div className={styles.body}>{renderRichMessageText(message.body, me.username)}</div>}
+              {message.body && (
+                <div className={styles.body}>
+                  {renderRichText(message.body, me.username, {
+                    link: styles.link,
+                    mention: styles.mention,
+                    mentionSelf: styles.mentionSelf,
+                  })}
+                </div>
+              )}
 
               {message.attachments.length > 0 && (
                 <div className={styles.attachments}>

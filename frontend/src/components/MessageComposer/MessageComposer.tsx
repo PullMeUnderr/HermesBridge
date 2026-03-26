@@ -9,6 +9,15 @@ import {
   useState,
 } from "react"
 import styles from "./MessageComposer.module.scss"
+import type { UploadProgressState } from "@/lib/api"
+import {
+  fileExtension,
+  formatBytes,
+  isAudioAttachment,
+  isImageAttachment,
+  isVideoAttachment,
+} from "@/lib/format"
+import { renderRichText } from "@/lib/richText"
 import type {
   ConversationMember,
   ConversationMessage,
@@ -137,6 +146,78 @@ function SendIcon() {
   )
 }
 
+function PendingAttachmentCard({
+  attachment,
+  disabled,
+  statusLabel,
+  onRemove,
+}: {
+  attachment: PendingAttachment
+  disabled: boolean
+  statusLabel: string
+  onRemove: () => void
+}) {
+  const [previewUrl, setPreviewUrl] = useState("")
+  const [previewFailed, setPreviewFailed] = useState(false)
+
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(attachment.file)
+    setPreviewUrl(objectUrl)
+    setPreviewFailed(false)
+    return () => {
+      URL.revokeObjectURL(objectUrl)
+    }
+  }, [attachment.file])
+
+  const mimeType = attachment.file.type || null
+  const fileName = attachment.file.name
+  const isImage = isImageAttachment(mimeType, "DOCUMENT", fileName)
+  const isVideo = isVideoAttachment(mimeType, "DOCUMENT", fileName)
+  const isAudio = isAudioAttachment(mimeType, "DOCUMENT", fileName)
+  const extension = fileExtension(fileName).toUpperCase() || "FILE"
+
+  return (
+    <div className={styles.pendingCard}>
+      <div className={styles.pendingPreview}>
+        {previewUrl && isImage && !previewFailed ? (
+          <img
+            src={previewUrl}
+            alt={fileName}
+            className={styles.pendingImage}
+            onError={() => setPreviewFailed(true)}
+          />
+        ) : previewUrl && isVideo && !previewFailed ? (
+          <video
+            src={previewUrl}
+            className={styles.pendingVideo}
+            muted
+            playsInline
+            preload='metadata'
+            onError={() => setPreviewFailed(true)}
+          />
+        ) : (
+          <div className={styles.pendingFallback}>
+            <strong>{isAudio ? "AUDIO" : extension}</strong>
+          </div>
+        )}
+      </div>
+      <div className={styles.pendingMeta}>
+        <strong title={fileName}>{fileName}</strong>
+        <span>{formatBytes(attachment.file.size)}</span>
+        <span>{statusLabel}</span>
+      </div>
+      <button
+        type='button'
+        disabled={disabled}
+        className={styles.pendingRemove}
+        onClick={onRemove}
+      >
+        {disabled ? "..." : "Убрать"}
+      </button>
+    </div>
+  )
+}
+
 interface MessageComposerProps {
   currentUserId: number
   members: ConversationMember[]
@@ -147,6 +228,7 @@ interface MessageComposerProps {
     body: string
     attachments: PendingAttachment[]
     sendAsVideoNote: boolean
+    onUploadProgress?: (state: UploadProgressState) => void
   }) => Promise<void>
 }
 
@@ -175,6 +257,7 @@ export function MessageComposer({
   const [cameraFacingMode, setCameraFacingMode] = useState<"user" | "environment">("user")
   const [videoRecordingStartedAt, setVideoRecordingStartedAt] = useState<number | null>(null)
   const [composerError, setComposerError] = useState("")
+  const [uploadState, setUploadState] = useState<UploadProgressState | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [videoRecordingTick, setVideoRecordingTick] = useState(0)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -188,6 +271,45 @@ export function MessageComposer({
   const typingActiveRef = useRef(false)
   const typingKeepAliveRef = useRef<number | null>(null)
   const [previewVideoPlaying, setPreviewVideoPlaying] = useState(false)
+
+  const uploadProgressPercent =
+    uploadState?.totalBytes && uploadState.totalBytes > 0
+      ? Math.max(
+          1,
+          Math.min(100, Math.round((uploadState.loadedBytes / uploadState.totalBytes) * 100)),
+        )
+      : uploadState?.phase === "processing"
+        ? 100
+        : null
+
+  const uploadProgressLabel =
+    uploadState?.phase === "processing"
+      ? "Файл загружен, сохраняем и отправляем..."
+      : uploadProgressPercent !== null
+        ? `Загружаем медиа на сервер... ${uploadProgressPercent}%`
+        : "Загружаем медиа на сервер..."
+
+  const nextAttachments = recordedVoiceFile
+    ? [
+        ...attachments,
+        {
+          id: `voice-${recordedVoiceFile.name}-${recordedVoiceFile.size}`,
+          file: recordedVoiceFile,
+          source: "voice" as const,
+        },
+      ]
+    : attachments
+
+  const galleryEligibleCount = nextAttachments.filter((attachment) => {
+    const mimeType = attachment.file.type || null
+    return (
+      isImageAttachment(mimeType, "DOCUMENT", attachment.file.name) ||
+      isVideoAttachment(mimeType, "DOCUMENT", attachment.file.name)
+    )
+  }).length
+
+  const willSendAsGallery =
+    nextAttachments.length > 1 && galleryEligibleCount === nextAttachments.length
 
   const mentionState = useMemo(() => {
     const match = body.match(/(?:^|[\s(])@([A-Za-z0-9_]*)$/)
@@ -510,6 +632,7 @@ export function MessageComposer({
     }
 
     setSubmitting(true)
+    setUploadState(null)
     try {
       setComposerError("")
       await onSend({
@@ -523,6 +646,7 @@ export function MessageComposer({
           },
         ],
         sendAsVideoNote: true,
+        onUploadProgress: setUploadState,
       })
       if (recordedVideoUrl) {
         URL.revokeObjectURL(recordedVideoUrl)
@@ -530,9 +654,14 @@ export function MessageComposer({
       setRecordedVideoUrl("")
       setRecordedVideoFile(null)
       setPreviewVideoPlaying(false)
-    } catch {
-      setComposerError("Не удалось отправить кружок.")
+    } catch (error) {
+      setComposerError(
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось отправить кружок.",
+      )
     } finally {
+      setUploadState(null)
       setSubmitting(false)
     }
   }
@@ -627,17 +756,6 @@ export function MessageComposer({
   }
 
   async function submitCurrentMessage() {
-    const nextAttachments = recordedVoiceFile
-      ? [
-          ...attachments,
-          {
-            id: `voice-${recordedVoiceFile.name}-${recordedVoiceFile.size}`,
-            file: recordedVoiceFile,
-            source: "voice" as const,
-          },
-        ]
-      : attachments
-
     if (!body.trim() && nextAttachments.length === 0) {
       return
     }
@@ -648,6 +766,7 @@ export function MessageComposer({
     }
 
     setSubmitting(true)
+    setUploadState(null)
     try {
       setComposerError("")
       emitTypingState(false)
@@ -661,6 +780,7 @@ export function MessageComposer({
         sendAsVideoNote:
           sendAsVideoNote ||
           nextAttachments.some((attachment) => attachment.sendAsVideoNote),
+        onUploadProgress: nextAttachments.length > 0 ? setUploadState : undefined,
       })
       setBody("")
       setAttachments([])
@@ -672,9 +792,14 @@ export function MessageComposer({
       setRecordedVoiceFile(null)
       setVoiceRecordingStartedAt(null)
       setVoiceRecordingTick(0)
-    } catch {
-      setComposerError("Не удалось отправить сообщение.")
+    } catch (error) {
+      setComposerError(
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось отправить сообщение.",
+      )
     } finally {
+      setUploadState(null)
       setSubmitting(false)
     }
   }
@@ -711,7 +836,15 @@ export function MessageComposer({
         <div className={styles.replyPreview}>
           <div>
             <strong>{replyTarget.authorDisplayName}</strong>
-            <span>{replyTarget.body || "Ответ с вложением"}</span>
+            <span>
+              {replyTarget.body
+                ? renderRichText(replyTarget.body, null, {
+                    link: styles.replyLink,
+                    mention: styles.replyMention,
+                    mentionSelf: styles.replyMentionSelf,
+                  })
+                : "Ответ с вложением"}
+            </span>
           </div>
           <button type='button' onClick={onCancelReply}>
             ×
@@ -916,31 +1049,57 @@ export function MessageComposer({
         </div>
       )}
 
-      {attachments.length > 0 && (
+      {nextAttachments.length > 0 && (
         <div className={styles.pending}>
-          {attachments.map((attachment) => (
-            <div key={attachment.id} className={styles.pendingItem}>
-              <strong>{attachment.file.name}</strong>
-              <span className={submitting ? styles.pendingUploading : ""}>
-                {submitting ? "Отправляем..." : attachment.source}
-              </span>
-              <button
-                type='button'
+          <div className={styles.pendingGrid}>
+            {nextAttachments.map((attachment) => (
+              <PendingAttachmentCard
+                key={attachment.id}
+                attachment={attachment}
                 disabled={submitting}
-                onClick={() =>
+                statusLabel={
+                  uploadState
+                    ? uploadState.phase === "processing"
+                      ? "Сохраняем..."
+                      : uploadProgressPercent !== null
+                        ? `Загрузка ${uploadProgressPercent}%`
+                        : "Загрузка..."
+                    : submitting
+                      ? "Отправляем..."
+                      : attachment.source
+                }
+                onRemove={() =>
                   setAttachments((current) =>
                     current.filter((item) => item.id !== attachment.id),
                   )
                 }
-              >
-                {submitting ? "..." : "Убрать"}
-              </button>
+              />
+            ))}
+          </div>
+          {willSendAsGallery && (
+            <div className={styles.pendingHint}>
+              Фото и видео будут отправлены одной галереей.
             </div>
-          ))}
-          {submitting && (
-            <div className={styles.uploadingBanner}>
-              <span className={styles.uploadingBannerSpinner} aria-hidden='true' />
-              <strong>Загружаем вложения в чат...</strong>
+          )}
+          {uploadState && (
+            <div className={styles.uploadProgressCard}>
+              <div className={styles.uploadProgressHead}>
+                <strong>{uploadProgressLabel}</strong>
+                <span>{uploadProgressPercent !== null ? `${uploadProgressPercent}%` : "..."}</span>
+              </div>
+              <div
+                className={styles.uploadProgressBar}
+                role='progressbar'
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={uploadProgressPercent ?? undefined}
+                aria-label='Прогресс загрузки вложений'
+              >
+                <span
+                  className={styles.uploadProgressFill}
+                  style={{ width: `${uploadProgressPercent ?? 100}%` }}
+                />
+              </div>
             </div>
           )}
         </div>

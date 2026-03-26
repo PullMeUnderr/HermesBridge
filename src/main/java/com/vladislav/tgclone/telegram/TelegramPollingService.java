@@ -613,6 +613,14 @@ public class TelegramPollingService {
     }
 
     private boolean hasSupportedGroupPayload(TelegramMessageDto message) {
+        if (message == null) {
+            return false;
+        }
+
+        return hasOwnSupportedGroupPayload(message) || hasSupportedGroupPayload(message.replyToMessage());
+    }
+
+    private boolean hasOwnSupportedGroupPayload(TelegramMessageDto message) {
         return (message.text() != null && !message.text().isBlank())
             || (message.caption() != null && !message.caption().isBlank())
             || (message.photo() != null && !message.photo().isEmpty())
@@ -622,7 +630,11 @@ public class TelegramPollingService {
             || message.voice() != null;
     }
 
-    private String extractInboundBody(TelegramMessageDto message) {
+    private String extractOwnInboundBody(TelegramMessageDto message) {
+        if (message == null) {
+            return "";
+        }
+
         if (message.text() != null && !message.text().isBlank()) {
             return message.text();
         }
@@ -632,18 +644,62 @@ public class TelegramPollingService {
         return "";
     }
 
+    private String mergeInboundBodies(String primaryBody, String replyBody) {
+        String normalizedPrimary = primaryBody == null ? "" : primaryBody.trim();
+        String normalizedReply = replyBody == null ? "" : replyBody.trim();
+
+        if (normalizedPrimary.isBlank()) {
+            return normalizedReply;
+        }
+        if (normalizedReply.isBlank()) {
+            return normalizedPrimary;
+        }
+        if (normalizedPrimary.contains(normalizedReply)) {
+            return normalizedPrimary;
+        }
+
+        return normalizedPrimary + "\n\nОтвет на сообщение Telegram:\n" + normalizedReply;
+    }
+
+    private String extractInboundBody(TelegramMessageDto message) {
+        if (message == null) {
+            return "";
+        }
+
+        return mergeInboundBodies(
+            extractOwnInboundBody(message),
+            extractInboundBody(message.replyToMessage())
+        );
+    }
+
     private String extractInboundBody(List<TelegramMessageDto> messages) {
+        String ownBody = "";
         for (TelegramMessageDto message : messages) {
-            String body = extractInboundBody(message);
+            String body = extractOwnInboundBody(message);
             if (!body.isBlank()) {
-                return body;
+                ownBody = body;
+                break;
             }
         }
-        return "";
+
+        String replyBody = "";
+        for (TelegramMessageDto message : messages) {
+            String body = extractInboundBody(message == null ? null : message.replyToMessage());
+            if (!body.isBlank()) {
+                replyBody = body;
+                break;
+            }
+        }
+
+        return mergeInboundBodies(ownBody, replyBody);
     }
 
     private List<ConversationAttachmentDraft> extractInboundAttachments(TelegramMessageDto message) {
         List<ConversationAttachmentDraft> attachments = new ArrayList<>();
+
+        if (message == null) {
+            return attachments;
+        }
 
         TelegramPhotoSizeDto photo = largestPhoto(message.photo());
         if (photo != null && photo.fileId() != null && !photo.fileId().isBlank()) {
@@ -698,6 +754,10 @@ public class TelegramPollingService {
                 voice.mimeType(),
                 voice.fileSize()
             ));
+        }
+
+        if (message.replyToMessage() != null) {
+            attachments.addAll(extractInboundAttachments(message.replyToMessage()));
         }
 
         return attachments;

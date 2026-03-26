@@ -13,6 +13,16 @@ export interface AuthRefreshResponse {
   accessTokenExpiresAt: string | null
 }
 
+export interface UploadProgressState {
+  loadedBytes: number
+  totalBytes: number | null
+  phase: "uploading" | "processing"
+}
+
+export interface ApiRequestOptions extends RequestInit {
+  onUploadProgress?: (state: UploadProgressState) => void
+}
+
 function getApiBaseUrl() {
   const explicitBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim()
   if (explicitBaseUrl) {
@@ -97,6 +107,83 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
   }
 
   return response.json() as Promise<T>
+}
+
+function parseErrorMessage(status: number, responseText: string) {
+  let message = `HTTP ${status}`
+  if (!responseText) {
+    return message
+  }
+
+  try {
+    const payload = JSON.parse(responseText)
+    return payload.message ?? message
+  } catch {
+    return message
+  }
+}
+
+async function readXhrJsonOrThrow<T>(status: number, responseText: string): Promise<T> {
+  if (status < 200 || status >= 300) {
+    throw new Error(parseErrorMessage(status, responseText))
+  }
+
+  if (status === 204 || !responseText) {
+    return null as T
+  }
+
+  return JSON.parse(responseText) as T
+}
+
+function sendWithUploadProgress<T>(
+  token: string,
+  path: string,
+  options: ApiRequestOptions,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    let lastProgressState: UploadProgressState | null = null
+    xhr.open(options.method ?? "GET", resolveUrl(path), true)
+    xhr.withCredentials = true
+
+    const headers = new Headers(
+      buildHeaders(token, options.headers, options.body instanceof FormData),
+    )
+    headers.forEach((value, key) => {
+      xhr.setRequestHeader(key, value)
+    })
+
+    xhr.upload.addEventListener("progress", (event) => {
+      lastProgressState = {
+        loadedBytes: event.loaded,
+        totalBytes: event.lengthComputable ? event.total : null,
+        phase: "uploading",
+      }
+      options.onUploadProgress?.(lastProgressState)
+    })
+
+    xhr.addEventListener("load", () => {
+      options.onUploadProgress?.({
+        loadedBytes: lastProgressState?.loadedBytes ?? 0,
+        totalBytes: lastProgressState?.totalBytes ?? null,
+        phase: "processing",
+      })
+
+      void readXhrJsonOrThrow<T>(xhr.status, xhr.responseText)
+        .then(resolve)
+        .catch(reject)
+    })
+
+    xhr.addEventListener("error", () => {
+      reject(new Error("Network error"))
+    })
+
+    xhr.addEventListener("abort", () => {
+      reject(new Error("Request aborted"))
+    })
+
+    xhr.send((options.body as XMLHttpRequestBodyInit | null | undefined) ?? null)
+  })
 }
 
 export async function exchangeBootstrapToken<TUser>(token: string) {
@@ -187,8 +274,16 @@ export async function logoutSession() {
 export async function apiRequest<T>(
   token: string,
   path: string,
-  options: RequestInit = {},
+  options: ApiRequestOptions = {},
 ): Promise<T> {
+  if (
+    typeof window !== "undefined" &&
+    typeof options.onUploadProgress === "function" &&
+    options.body instanceof FormData
+  ) {
+    return sendWithUploadProgress<T>(token, path, options)
+  }
+
   const isFormData = options.body instanceof FormData
   const response = await fetch(resolveUrl(path), {
     ...options,

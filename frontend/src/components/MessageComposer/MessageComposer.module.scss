@@ -54,6 +54,27 @@
   font-size: 0.9rem;
 }
 
+.replyLink {
+  color: #bfe7ff;
+  text-decoration: underline;
+  text-decoration-color: rgba(191, 231, 255, 0.5);
+  text-underline-offset: 0.14em;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.replyMention {
+  color: #dfffe8;
+  font-weight: 700;
+}
+
+.replyMentionSelf {
+  color: #0d1b12;
+  background: rgba(30, 215, 96, 0.9);
+  padding: 1px 5px;
+  border-radius: 999px;
+}
+
 .filePicker,
 .toolButton,
 .footer button,
@@ -218,43 +239,84 @@
   gap: 8px;
 }
 
-.pendingItem {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 14px;
-  border-radius: 14px;
+.pendingGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.pendingCard {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.pendingItem span {
-  color: var(--muted);
-  margin-left: auto;
-}
-
-.pendingUploading {
+.pendingPreview {
   position: relative;
-  padding-left: 18px;
+  min-height: 132px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(8, 11, 17, 0.9);
 }
 
-.pendingUploading::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 10px;
-  height: 10px;
-  margin-top: -5px;
+.pendingImage,
+.pendingVideo {
+  display: block;
+  width: 100%;
+  height: 132px;
+  object-fit: cover;
+}
+
+.pendingFallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 132px;
+  background:
+    radial-gradient(circle at top, rgba(123, 195, 255, 0.14), transparent 58%),
+    rgba(10, 14, 22, 0.92);
+  color: #d8e7f8;
+}
+
+.pendingMeta {
+  display: grid;
+  gap: 4px;
+}
+
+.pendingMeta strong {
+  font-size: 0.88rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.pendingMeta span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.pendingRemove {
+  justify-self: end;
+  padding: 6px 10px;
   border-radius: 999px;
-  border: 2px solid rgba(123, 195, 255, 0.28);
-  border-top-color: #7bc3ff;
-  animation: composerSpin 0.8s linear infinite;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
 }
 
-.uploadingBanner {
-  display: flex;
-  align-items: center;
+.pendingHint {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(151, 255, 216, 0.08);
+  border: 1px solid rgba(151, 255, 216, 0.18);
+  color: #d7fff1;
+  font-size: 0.82rem;
+}
+
+.uploadProgressCard {
+  display: grid;
   gap: 10px;
   padding: 12px 14px;
   border-radius: 14px;
@@ -263,13 +325,33 @@
   color: var(--text);
 }
 
-.uploadingBannerSpinner {
-  width: 14px;
-  height: 14px;
+.uploadProgressHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.uploadProgressHead span {
+  color: #cfeeff;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.uploadProgressBar {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
   border-radius: 999px;
-  border: 2px solid rgba(123, 195, 255, 0.24);
-  border-top-color: #7bc3ff;
-  animation: composerSpin 0.8s linear infinite;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.uploadProgressFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7bc3ff, #97ffd8);
+  transition: width 120ms ease-out;
 }
 
 .recordedVoicePreview {

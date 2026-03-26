@@ -6,6 +6,7 @@ import { Avatar } from "@/components/ui/Avatar"
 import { MessagesList } from "@/components/MessagesList/MessagesList"
 import { MessageComposer } from "@/components/MessageComposer/MessageComposer"
 import { MembersPanel } from "@/components/MembersPanel/MembersPanel"
+import type { UploadProgressState } from "@/lib/api"
 import { displayConversationTitle, isTelegramConversationTitle, renderPresenceLabel } from "@/lib/format"
 import type {
   AuthUser,
@@ -33,6 +34,7 @@ interface ConversationViewProps {
     attachments: PendingAttachment[]
     replyToMessageId: number | null
     sendAsVideoNote: boolean
+    onUploadProgress?: (state: UploadProgressState) => void
   }) => Promise<void>
   onReply: (messageId: number) => ConversationMessage | null
   onTypingStateChange: (active: boolean) => void
